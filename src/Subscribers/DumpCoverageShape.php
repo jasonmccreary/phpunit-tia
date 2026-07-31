@@ -27,7 +27,7 @@ final readonly class DumpCoverageShape implements ExecutionFinishedSubscriber
     {
         $coverage = CodeCoverage::instance();
 
-        if (!$coverage->isActive()) {
+        if (! $coverage->isActive()) {
             $this->write([
                 'active' => false,
                 'reason' => 'CodeCoverage::instance()->isActive() is false — no driver available or Selector threw',
@@ -47,13 +47,13 @@ final readonly class DumpCoverageShape implements ExecutionFinishedSubscriber
     }
 
     /**
-     * @param array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      */
     private function write(array $payload): void
     {
         $directory = dirname($this->destination);
 
-        if (!is_dir($directory)) {
+        if (! is_dir($directory)) {
             mkdir($directory, recursive: true);
         }
 

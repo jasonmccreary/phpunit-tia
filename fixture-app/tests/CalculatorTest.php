@@ -11,11 +11,11 @@ final class CalculatorTest extends TestCase
 {
     public function test_it_adds(): void
     {
-        $this->assertSame(4, (new Calculator())->add(2, 2));
+        $this->assertSame(4, (new Calculator)->add(2, 2));
     }
 
     public function test_it_subtracts(): void
     {
-        $this->assertSame(1, (new Calculator())->subtract(3, 2));
+        $this->assertSame(1, (new Calculator)->subtract(3, 2));
     }
 }

@@ -11,6 +11,6 @@ final class ExtensionTest extends TestCase
 {
     public function test_it_implements_the_phpunit_extension_contract(): void
     {
-        $this->assertInstanceOf(\PHPUnit\Runner\Extension\Extension::class, new Extension());
+        $this->assertInstanceOf(\PHPUnit\Runner\Extension\Extension::class, new Extension);
     }
 }

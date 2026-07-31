@@ -15,7 +15,7 @@ final class Extension implements ExtensionContract
 {
     public function bootstrap(Configuration $configuration, Facade $facade, ParameterCollection $parameters): void
     {
-        if (!$this->coverageDriverAvailable()) {
+        if (! $this->coverageDriverAvailable()) {
             fwrite(STDERR, "phpunit-tia: no coverage driver (pcov/xdebug) available — TIA disabled for this run.\n");
 
             return;
