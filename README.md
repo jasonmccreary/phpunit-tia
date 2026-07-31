@@ -68,7 +68,7 @@ PHPUNIT_TIA_FRESH=1 phpunit ...
 ```
 
 ## CI Workflows
-For TIA to skip tests in CI, its baseline graph must persist between runs. See our own [tests.yml](.github/workflows/tests.yml) for a working example. At a high level, your workflow needs to:
+For TIA to skip tests in CI, your baseline graph must persist between runs. See our own [GitHub Action workflow](.github/workflows/tests.yml) for an example. At a high level, your workflow needs to:
 
 - Check out with full git history (`fetch-depth: 0`), since TIA diffs against a baseline commit
 - Re-attach `HEAD` to the real branch name, since a detached `HEAD` collapses baselines across branches
