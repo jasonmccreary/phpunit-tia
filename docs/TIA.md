@@ -1,5 +1,13 @@
 # PHPUnit TIA — Design Doc (v1)
 
+**Status: v1 complete.** All five milestones in §10 are done; this doc is now
+a build log, not an active plan. Its two sections with lasting reference
+value have been extracted: [`decisions.md`](decisions.md) (design
+rationale + verified PHPUnit bugs, formerly §3/§4.1a) and
+[`roadmap.md`](roadmap.md) (deferred v2 work, formerly §8). The
+rest of this doc documents decisions already reflected in the code/README and
+is kept for historical context.
+
 Test Impact Analysis for vanilla PHPUnit, shipped as a composer package: a
 `PHPUnit\Runner\Extension\Extension` (records a test↔source dependency graph)
 plus a `RunWithTia` trait projects drop into their base `TestCase` (skips
@@ -73,34 +81,11 @@ useless without a graph the extension produced).
 
 ## 3. Why the trait can only skip, never fake a pass
 
-This constrains the whole design, so it's worth stating precisely, with the
-exact PHPUnit source that proves it (`/Users/jason/workspace/blueprint/vendor/phpunit/phpunit/src/Framework/TestCase.php`):
-
-- `run()` (line 354) and `runBare()` (line 472) are both `final`.
-- `runBare()` calls the private method `runTest()` (line 515: `$this->testResult = $this->runTest();`).
-- `runTest()` (line 1652) is `private` and unconditionally does `$this->{$this->methodName}(...$testArguments)` (line 1657) — it invokes the real, hand-written test method by name. Private methods aren't virtual in PHP, so no trait or subclass can intercept this call.
-- The only genuinely overridable hook between "setUp succeeds" and "the real method body runs" is `setUp()` itself (line 272, `protected`, not final).
-
-So `RunWithTia::setUp()` has exactly one lever: decide before returning
-whether to let PHPUnit continue into the real test body, or throw. Throwing
-`PHPUnit\Framework\SkippedTestError` (or `PHPUnit\Framework\SkippedTest`,
-whichever's public in the target version) is the only way to stop
-`runTest()` from being reached, and PHPUnit will report that as **Skipped**,
-not **Passed**.
-
-`addToAssertionCount()` (line 815, `final public`) is callable from `setUp()`
-before throwing, so the skipped test can still carry the correct cached
-assertion count forward — but the status line is what it is.
-
-**Design consequence**: expose a config flag so teams running with
-`--fail-on-skipped` (or treating any skip as CI-red) can opt out per-suite,
-and make the skip message self-documenting: `"TIA: unaffected since <sha>, last run passed"`.
-This mirrors what Pest's own `Graph::shouldRerunStatus()`
-(`/Users/jason/workspace/pest/src/Plugins/Tia/Graph.php:709-762`) already has to account for — it
-checks `$configuration->failOnSkipped()` / `failOnRisky()` / etc. before
-deciding a cached non-success status is even safe to replay. Port that same
-policy check into `RunWithTia`, just applied to the *skip* decision instead
-of a replay decision.
+Extracted to [`decisions.md`](decisions.md#why-the-trait-can-only-skip-never-fake-a-pass)
+— the full proof (against PHPUnit's `TestCase` source) that `setUp()` is the
+only overridable hook available, plus the `shouldRerunStatus`/cached-failure
+rationale. Kept here only as a pointer since later sections (§4.7, §6, the
+milestone log) reference "§3" by number.
 
 ---
 
@@ -147,66 +132,10 @@ internals, not documented behavior, so treat this as "verified snapshot of
 
 #### 4.1a Milestone 1 findings (verified against PHPUnit 13.2.6)
 
-**Bug 1 — filter-registry crash.** `PHPUnit\Runner\CodeCoverage::init()`
-(`vendor/phpunit/phpunit/src/Runner/CodeCoverage.php:78`) calls
-`$codeCoverageFilterRegistry->init($configuration)` with no second argument,
-so `CodeCoverageFilterRegistry::init()`'s `$force` parameter defaults to
-`false` (`vendor/phpunit/phpunit/src/TextUI/Configuration/CodeCoverageFilterRegistry.php:52`).
-That method only builds `$this->filter` when `$configuration->hasCoverageReport()`
-is true (i.e. a `<coverage><report>` target like `clover`/`html`/`php` is
-configured) — it does **not** check whether an extension called
-`requireCodeCoverageCollection()`. But `CodeCoverage::init()`'s own
-early-return check three lines later *does* account for the extension flag
-(`!$configuration->hasCoverageReport() && !$extensionRequiresCodeCoverageCollection`),
-so with an extension requiring coverage and zero report targets configured,
-execution proceeds into `$codeCoverageFilterRegistry->get()`
-(`CodeCoverageFilterRegistry.php:44`), which does `assert($this->filter !== null)`
-— and crashes, because the filter was never built. Reproduced with `zend.assertions=1`
-(PHP's dev default); with assertions compiled out it would instead be a
-`TypeError` on `get()`'s non-nullable `Filter` return type. Confirmed
-byte-identical in both `CodeCoverage.php` and `CodeCoverageFilterRegistry.php`
-between PHPUnit 12.5.33 and 13.2.6.
-
-**Fix**: `Extension::bootstrap()` pre-populates the registry itself —
-`CodeCoverageFilterRegistry::instance()->init($configuration, true)` — before
-calling `$facade->requireCodeCoverageCollection()`. This relies on an
-`@internal` class, a deliberate tradeoff (chosen over requiring every
-consumer's `phpunit.xml` to add a throwaway `<coverage><report>` block) so
-the package keeps its §1 promise of "register the extension, add the trait,
-nothing else." Risk is contained: this package pins to one exact PHPUnit
-minor line, and the package's own test suite (running against that pinned
-version) will catch a signature/behavior change immediately rather than a
-consumer hitting it silently in production.
-
-**Bug 2 — silent full-suite skip with no driver.** Independent of bug 1.
-`CodeCoverage::init()` returns a `CodeCoverageInitializationStatus` enum
-(`NOT_REQUESTED` / `SUCCEEDED` / `FAILED`) — `FAILED` when `activate()`'s
-internal `Selector` can't find pcov/xdebug/phpdbg and throws
-`NoCodeCoverageDriverAvailableException` (caught internally, converted to a
-`testRunnerTriggeredPhpunitWarning` event, not rethrown). `TextUI\Application::run()`
-(`Application.php:225-234`) only calls `$runner->run(...)` when that status is
-`NOT_REQUESTED` or `SUCCEEDED` — on `FAILED` it skips test execution
-**entirely**, with no exception and no clear error: the process exits 1 with
-just `"No tests executed!"` printed. So the answer to the original open
-question is: an extension that unconditionally calls
-`requireCodeCoverageCollection()` on a machine with no coverage driver
-doesn't disable itself gracefully — it silently prevents the *entire test
-suite* from running, which is far worse than either guessed outcome.
-
-**Fix**: exactly the driver-presence check this doc already anticipated as
-the *if it hard-fails* contingency — `Extension::bootstrap()` checks
-`function_exists('pcov\\start') && ini_get('pcov.enabled')` /
-`xdebug_info('mode')` containing `'coverage'` (mirrors Pest's verified
-`/Users/jason/workspace/pest/src/Plugins/Tia/Recorder.php:68-87` `driverAvailable()`
-logic, not a blunt `extension_loaded()` check — pcov can be loaded but
-ini-disabled, xdebug can be loaded in a mode without coverage) **before**
-calling `requireCodeCoverageCollection()`. No driver → write one line to
-STDERR and return from `bootstrap()` without requiring coverage; PHPUnit then
-sees `NOT_REQUESTED` and runs the suite normally, just without TIA active for
-that run. Verified end-to-end in `fixture-app/` (no driver on the dev
-machine): tests execute and pass; forcing past this check to isolate bug 1
-reproduces the clean warning-event path with no crash, confirming the two
-fixes are independent and both necessary.
+Extracted to [`decisions.md`](decisions.md#milestone-1-findings-two-internal-phpunit-bugs-verified-against-1326)
+— the two `@internal`-marked PHPUnit bugs found empirically (filter-registry
+crash, silent full-suite skip with no coverage driver) and the fixes in
+`Extension::bootstrap()` they justify.
 
 ### 4.2 Change detection — port `ChangedFiles.php` + `ContentHash.php` almost verbatim
 
@@ -412,11 +341,11 @@ Env var escape hatches worth having from day one (mirrors
 
 ## 8. v2 candidates (explicitly deferred, don't build yet)
 
-- **`--filter`-based selection wrapper**: a `vendor/bin/phpunit-tia` binary that computes the affected set the same way, then re-execs real `phpunit --filter '<computed regex>'`. This is a legitimate complement to the trait (skips the process-level cost of even instantiating unaffected `TestCase`s, not just their bodies) but is mechanically a wrapper trick, not an extension capability — see §6's confirmation that `Facade` has no test-selection hook. Keep it a separate bin/package so the core extension+trait stays usable standalone.
-- **Parallel runner (ParaTest) support** — needs the worker/partial-merge machinery Pest has in `Tia.php` (`handleWorker`, `flushWorkerPartial`, `collectWorkerEdgesPartials`, `mergeWorkerReplayPartials`); real complexity, don't take on until single-process v1 is solid.
-- **Remote baseline sync** (`/Users/jason/workspace/pest/src/Plugins/Tia/BaselineSync.php`) — fetching a pre-warmed graph from CI cache/artifact storage so a fresh clone doesn't start cold. Useful, not blocking.
-- **Framework `Resolver` packages** (Laravel migrations/Blade/Inertia, Symfony, etc.) — the extension point ships in v1 (§4.3), the packages themselves are separate deliverables.
-- **Replaying cached failures** — considered and rejected for v1 in §4.7; revisit only with a concrete case for it.
+Extracted to [`roadmap.md`](roadmap.md) — the `--filter`-based
+selection wrapper, ParaTest support, remote baseline sync, framework
+`Resolver` companion packages, and the replay-cached-failures question, all
+still deferred and unscheduled. Kept here only as a pointer since §1 and the
+milestone log reference "§8" by number.
 
 ---
 

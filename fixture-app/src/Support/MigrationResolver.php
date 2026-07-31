@@ -8,7 +8,7 @@ use JMac\Testing\PhpUnit\Tia\Contracts\Resolver;
 
 /**
  * Throwaway example proving the Resolver extension point (phpunit-tia's
- * TIA.md §4.3, §8) is usable end-to-end, not just reachable via
+ * docs/TIA.md §4.3, docs/roadmap.md) is usable end-to-end, not just reachable via
  * Graph::setResolvers() in a unit test. A real framework package (e.g.
  * laravel/phpunit-tia-resolver) would parse the migration file to find the
  * table it creates and map that to every test touching that table; this
