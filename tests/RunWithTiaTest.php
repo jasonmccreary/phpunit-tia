@@ -32,6 +32,12 @@ final class RunWithTiaTest extends TestCase
     {
         Tia::reset();
 
+        // The rest of this suite dogfoods TIA (tests/TestCase.php) against
+        // this real project via the process-wide Tia singleton — reset()
+        // alone leaves it unconfigured for every test after this one, so
+        // re-arm it exactly as Extension::bootstrap() would.
+        Tia::configure(dirname(__DIR__), 'global');
+
         if (isset($this->repo)) {
             $this->repo->cleanup();
         }
@@ -70,7 +76,7 @@ final class RunWithTiaTest extends TestCase
     }
 
     #[Test]
-    public function it_reports_skippedByTia_true_only_after_a_tia_skip(): void
+    public function it_reports_skipped_by_tia_true_only_after_a_tia_skip(): void
     {
         $this->recordPassingResult();
         $fixture = $this->fixtureInstance();

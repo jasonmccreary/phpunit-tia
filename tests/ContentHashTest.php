@@ -6,7 +6,6 @@ namespace JMac\Testing\PhpUnit\Tia\Tests;
 
 use JMac\Testing\PhpUnit\Tia\ContentHash;
 use PHPUnit\Framework\Attributes\Test;
-use PHPUnit\Framework\TestCase;
 
 final class ContentHashTest extends TestCase
 {
@@ -14,12 +13,18 @@ final class ContentHashTest extends TestCase
 
     protected function setUp(): void
     {
+        parent::setUp();
+
         $this->tempDir = sys_get_temp_dir().'/phpunit-tia-content-hash-'.bin2hex(random_bytes(8));
         mkdir($this->tempDir);
     }
 
     protected function tearDown(): void
     {
+        if ($this->skippedByTia()) {
+            return;
+        }
+
         foreach (glob($this->tempDir.'/*') ?: [] as $file) {
             unlink($file);
         }

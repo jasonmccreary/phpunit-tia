@@ -8,7 +8,6 @@ use JMac\Testing\PhpUnit\Tia\Config;
 use JMac\Testing\PhpUnit\Tia\Contracts\Resolver;
 use JMac\Testing\PhpUnit\Tia\Tests\Support\TempGitRepository;
 use PHPUnit\Framework\Attributes\Test;
-use PHPUnit\Framework\TestCase;
 
 /**
  * Exercises the optional phpunit-tia.php config file (§7) that
@@ -22,11 +21,17 @@ final class ConfigTest extends TestCase
 
     protected function setUp(): void
     {
+        parent::setUp();
+
         $this->repo = TempGitRepository::create();
     }
 
     protected function tearDown(): void
     {
+        if ($this->skippedByTia()) {
+            return;
+        }
+
         $this->repo->cleanup();
     }
 

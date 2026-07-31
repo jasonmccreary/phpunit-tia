@@ -8,7 +8,6 @@ use JMac\Testing\PhpUnit\Tia\ChangedFiles;
 use JMac\Testing\PhpUnit\Tia\ContentHash;
 use JMac\Testing\PhpUnit\Tia\Tests\Support\TempGitRepository;
 use PHPUnit\Framework\Attributes\Test;
-use PHPUnit\Framework\TestCase;
 
 final class ChangedFilesTest extends TestCase
 {
@@ -18,12 +17,18 @@ final class ChangedFilesTest extends TestCase
 
     protected function setUp(): void
     {
+        parent::setUp();
+
         $this->repo = TempGitRepository::create();
         $this->changedFiles = new ChangedFiles($this->repo->path());
     }
 
     protected function tearDown(): void
     {
+        if ($this->skippedByTia()) {
+            return;
+        }
+
         $this->repo->cleanup();
     }
 

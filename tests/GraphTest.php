@@ -9,7 +9,6 @@ use JMac\Testing\PhpUnit\Tia\Graph;
 use JMac\Testing\PhpUnit\Tia\TestPaths;
 use JMac\Testing\PhpUnit\Tia\Tests\Support\TempGitRepository;
 use PHPUnit\Framework\Attributes\Test;
-use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\TestStatus\TestStatus;
 
 final class GraphTest extends TestCase
@@ -18,11 +17,17 @@ final class GraphTest extends TestCase
 
     protected function setUp(): void
     {
+        parent::setUp();
+
         $this->repo = TempGitRepository::create();
     }
 
     protected function tearDown(): void
     {
+        if ($this->skippedByTia()) {
+            return;
+        }
+
         $this->repo->cleanup();
     }
 

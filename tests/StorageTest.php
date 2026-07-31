@@ -7,7 +7,6 @@ namespace JMac\Testing\PhpUnit\Tia\Tests;
 use JMac\Testing\PhpUnit\Tia\Storage;
 use JMac\Testing\PhpUnit\Tia\Tests\Support\TempGitRepository;
 use PHPUnit\Framework\Attributes\Test;
-use PHPUnit\Framework\TestCase;
 
 final class StorageTest extends TestCase
 {
@@ -15,11 +14,17 @@ final class StorageTest extends TestCase
 
     protected function setUp(): void
     {
+        parent::setUp();
+
         $this->repo = TempGitRepository::create();
     }
 
     protected function tearDown(): void
     {
+        if ($this->skippedByTia()) {
+            return;
+        }
+
         $this->repo->cleanup();
 
         Storage::purge($this->repo->path(), 'global');

@@ -1,0 +1,68 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # TIA diffs against a baseline commit recorded on a previous run
+          # (git merge-base/diff), so it needs real history, not the
+          # single-commit shallow clone actions/checkout does by default.
+          fetch-depth: 0
+
+      - name: Restore branch name
+        # actions/checkout leaves a detached HEAD even for branch builds,
+        # which TIA's `git rev-parse --abbrev-ref HEAD` would read as no
+        # branch at all, collapsing every branch's baseline into one shared
+        # bucket. Re-attach HEAD to the real branch name so per-branch
+        # baselines (main vs. PR branches) actually stay separate.
+        run: git checkout -B "${{ github.head_ref || github.ref_name }}"
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: pcov
+          tools: composer:v2
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.json') }}
+          restore-keys: |
+            composer-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Cache phpunit-tia graph
+        uses: actions/cache@v4
+        with:
+          # Default "global" storage mode (phpunit.xml.dist) — outside the
+          # repo, keyed by git remote, so every checkout/runner for this
+          # repo shares one graph.
+          path: ~/.phpunit-tia
+          # Every run should attempt to save a fresh cache entry (the graph
+          # changes whenever a test's affected-ness changes), so the primary
+          # key includes run_id and will always miss on restore, then save
+          # unconditionally at the end of the job. restore-keys falls back
+          # to the most recent entry regardless of exact key.
+          key: phpunit-tia-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            phpunit-tia-${{ runner.os }}-
+
+      - name: Run tests
+        run: vendor/bin/phpunit

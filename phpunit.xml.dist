@@ -16,4 +16,10 @@
             <directory>src</directory>
         </include>
     </source>
+
+    <extensions>
+        <bootstrap class="JMac\Testing\PhpUnit\Tia\Extension">
+            <parameter name="storage" value="global"/>
+        </bootstrap>
+    </extensions>
 </phpunit>

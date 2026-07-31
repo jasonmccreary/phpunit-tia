@@ -6,7 +6,6 @@ namespace JMac\Testing\PhpUnit\Tia\Tests;
 
 use JMac\Testing\PhpUnit\Tia\FileState;
 use PHPUnit\Framework\Attributes\Test;
-use PHPUnit\Framework\TestCase;
 
 final class FileStateTest extends TestCase
 {
@@ -14,11 +13,17 @@ final class FileStateTest extends TestCase
 
     protected function setUp(): void
     {
+        parent::setUp();
+
         $this->root = sys_get_temp_dir().'/phpunit-tia-filestate-'.bin2hex(random_bytes(8));
     }
 
     protected function tearDown(): void
     {
+        if ($this->skippedByTia()) {
+            return;
+        }
+
         if (! is_dir($this->root)) {
             return;
         }

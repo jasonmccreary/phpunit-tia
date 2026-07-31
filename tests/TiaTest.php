@@ -28,12 +28,25 @@ final class TiaTest extends TestCase
 
     protected function setUp(): void
     {
+        // Every test here starts from a genuinely pristine Tia singleton —
+        // tearDown() re-arms the real project's config afterward (for the
+        // rest of the dogfooded suite), which would otherwise leak into
+        // whichever test here runs next and expects "never configured".
+        Tia::reset();
+
         $this->repo = TempGitRepository::create();
     }
 
     protected function tearDown(): void
     {
         Tia::reset();
+
+        // The rest of this suite dogfoods TIA (tests/TestCase.php) against
+        // this real project via the process-wide Tia singleton — reset()
+        // alone leaves it unconfigured for every test after this one, so
+        // re-arm it exactly as Extension::bootstrap() would.
+        Tia::configure(dirname(__DIR__), 'global');
+
         $this->repo->cleanup();
     }
 

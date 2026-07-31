@@ -6,7 +6,6 @@ namespace JMac\Testing\PhpUnit\Tia\Tests;
 
 use JMac\Testing\PhpUnit\Tia\TestPaths;
 use PHPUnit\Framework\Attributes\Test;
-use PHPUnit\Framework\TestCase;
 
 /**
  * fromProjectRoot() reads PHPUnit's process-global Registry singleton, which

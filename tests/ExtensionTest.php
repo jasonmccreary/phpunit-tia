@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace JMac\Testing\PhpUnit\Tia\Tests;
 
 use JMac\Testing\PhpUnit\Tia\Extension;
-use PHPUnit\Framework\TestCase;
 
 final class ExtensionTest extends TestCase
 {
