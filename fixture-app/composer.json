@@ -1,0 +1,35 @@
+{
+    "name": "jasonmccreary/phpunit-tia-fixture-app",
+    "description": "Throwaway PHPUnit project for dogfooding the phpunit-tia extension during development. Not published.",
+    "type": "project",
+    "license": "proprietary",
+    "private": true,
+    "require": {
+        "php": "^8.3"
+    },
+    "require-dev": {
+        "jasonmccreary/phpunit-tia": "*",
+        "phpunit/phpunit": "^12.5"
+    },
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../",
+            "options": {
+                "symlink": true
+            }
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}

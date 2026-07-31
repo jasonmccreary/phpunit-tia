@@ -1,0 +1,11 @@
+/vendor/
+/composer.lock
+/.phpunit.cache/
+/.phpunit-tia/
+/.phpunit.result.cache
+
+fixture-app/vendor/
+fixture-app/composer.lock
+fixture-app/.phpunit.cache/
+fixture-app/.phpunit-tia/
+fixture-app/.phpunit.result.cache

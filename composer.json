@@ -1,0 +1,45 @@
+{
+    "name": "jasonmccreary/phpunit-tia",
+    "description": "Test Impact Analysis for vanilla PHPUnit: skip unaffected tests based on a recorded test↔source coverage graph.",
+    "keywords": [
+        "php",
+        "phpunit",
+        "testing",
+        "tia",
+        "test impact analysis",
+        "coverage"
+    ],
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Jason McCreary",
+            "email": "development@pureconcepts.net"
+        }
+    ],
+    "require": {
+        "php": "^8.3",
+        "ext-json": "*",
+        "symfony/process": "^7.0"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.5 || ^12.5"
+    },
+    "conflict": {
+        "phpunit/phpunit": "<11.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "JMac\\Testing\\PhpUnit\\Tia\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "JMac\\Testing\\PhpUnit\\Tia\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
