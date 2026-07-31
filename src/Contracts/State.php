@@ -11,9 +11,9 @@ interface State
 {
     public function read(string $key): ?string;
 
-    public function write(string $key, string $value): void;
+    public function write(string $key, string $content): bool;
 
-    public function delete(string $key): void;
+    public function delete(string $key): bool;
 
     public function exists(string $key): bool;
 

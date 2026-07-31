@@ -4,7 +4,15 @@ declare(strict_types=1);
 
 namespace JMac\Testing\PhpUnit\Tia;
 
-use JMac\Testing\PhpUnit\Tia\Subscribers\DumpCoverageShape;
+use JMac\Testing\PhpUnit\Tia\Subscribers\RecordTestConsideredRisky;
+use JMac\Testing\PhpUnit\Tia\Subscribers\RecordTestErrored;
+use JMac\Testing\PhpUnit\Tia\Subscribers\RecordTestFailed;
+use JMac\Testing\PhpUnit\Tia\Subscribers\RecordTestFinished;
+use JMac\Testing\PhpUnit\Tia\Subscribers\RecordTestMarkedIncomplete;
+use JMac\Testing\PhpUnit\Tia\Subscribers\RecordTestPassed;
+use JMac\Testing\PhpUnit\Tia\Subscribers\RecordTestPrepared;
+use JMac\Testing\PhpUnit\Tia\Subscribers\RecordTestSkipped;
+use JMac\Testing\PhpUnit\Tia\Subscribers\WriteGraph;
 use PHPUnit\Runner\Extension\Extension as ExtensionContract;
 use PHPUnit\Runner\Extension\Facade;
 use PHPUnit\Runner\Extension\ParameterCollection;
@@ -31,11 +39,19 @@ final class Extension implements ExtensionContract
 
         $facade->requireCodeCoverageCollection();
 
-        // Milestone 1 validation only (§10) — dumps lineCoverage()'s shape to
-        // confirm the piggyback approach works before Recorder/Graph exist.
-        $facade->registerSubscriber(new DumpCoverageShape(
-            getcwd().'/.phpunit-tia/coverage-shape.json',
-        ));
+        $results = new ResultCollector;
+
+        $facade->registerSubscribers(
+            new RecordTestPrepared($results),
+            new RecordTestPassed($results),
+            new RecordTestFailed($results),
+            new RecordTestErrored($results),
+            new RecordTestSkipped($results),
+            new RecordTestMarkedIncomplete($results),
+            new RecordTestConsideredRisky($results),
+            new RecordTestFinished($results),
+            new WriteGraph($this->projectRoot($configuration), $results, $this->storageMode($parameters)),
+        );
     }
 
     /**
@@ -56,5 +72,34 @@ final class Extension implements ExtensionContract
         }
 
         return false;
+    }
+
+    /**
+     * The directory containing phpunit.xml is the natural project root for
+     * every path-relative operation this package does (git plumbing,
+     * fingerprinting, edge resolution) — falls back to the working
+     * directory only if PHPUnit was somehow run without a config file.
+     */
+    private function projectRoot(Configuration $configuration): string
+    {
+        if ($configuration->hasConfigurationFile()) {
+            return dirname($configuration->configurationFile());
+        }
+
+        return getcwd() ?: '.';
+    }
+
+    /**
+     * <parameter name="storage" value="global|local"/> (§7). Defaults to
+     * global — outside the repo, keyed by git remote (Storage::resolve()) —
+     * since that's the one consumers get for free with zero .gitignore work.
+     */
+    private function storageMode(ParameterCollection $parameters): string
+    {
+        if ($parameters->has('storage') && $parameters->get('storage') === 'local') {
+            return 'local';
+        }
+
+        return 'global';
     }
 }
