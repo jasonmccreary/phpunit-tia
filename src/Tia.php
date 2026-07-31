@@ -26,6 +26,9 @@ final class Tia
 
     private static string $storageMode = 'global';
 
+    /** @var list<Contracts\Resolver> */
+    private static array $resolvers = [];
+
     private static bool $configured = false;
 
     private static ?self $instance = null;
@@ -42,10 +45,17 @@ final class Tia
         $this->affectedTestFiles = $affectedTestFiles;
     }
 
-    public static function configure(string $projectRoot, string $storageMode = 'global'): void
+    /**
+     * @param  list<Contracts\Resolver>  $resolvers  Extension point (§4.3, §8) — Extension::bootstrap()
+     *                                               loads these from the optional phpunit-tia.php config
+     *                                               file (Config::loadResolvers()) since PHPUnit's own
+     *                                               flat-string ParameterCollection can't express a list.
+     */
+    public static function configure(string $projectRoot, string $storageMode = 'global', array $resolvers = []): void
     {
         self::$projectRoot = $projectRoot;
         self::$storageMode = $storageMode;
+        self::$resolvers = $resolvers;
         self::$configured = true;
         self::$instance = null;
     }
@@ -55,6 +65,7 @@ final class Tia
     {
         self::$projectRoot = null;
         self::$storageMode = 'global';
+        self::$resolvers = [];
         self::$configured = false;
         self::$instance = null;
     }
@@ -139,7 +150,7 @@ final class Tia
         }
 
         try {
-            return self::attemptBoot(self::$projectRoot, self::$storageMode);
+            return self::attemptBoot(self::$projectRoot, self::$storageMode, self::$resolvers);
         } catch (Throwable) {
             // A TIA replay failure must never break the underlying test
             // suite — fall back to letting every test actually run.
@@ -147,7 +158,10 @@ final class Tia
         }
     }
 
-    private static function attemptBoot(string $projectRoot, string $storageMode): self
+    /**
+     * @param  list<Contracts\Resolver>  $resolvers
+     */
+    private static function attemptBoot(string $projectRoot, string $storageMode, array $resolvers): self
     {
         $state = new FileState(Storage::resolve($projectRoot, $storageMode));
         $raw = $state->read(Storage::GRAPH_KEY);
@@ -161,6 +175,8 @@ final class Tia
         if ($graph === null) {
             return self::inactive();
         }
+
+        $graph->setResolvers($resolvers);
 
         $current = Fingerprint::compute($projectRoot);
 

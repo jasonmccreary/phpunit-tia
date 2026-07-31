@@ -47,3 +47,46 @@ While a baseline will be established automatically, you may pass an environment 
 ```sh
 PHPUNIT_TIA_FRESH=1 phpunit ...
 ```
+
+## Extending TIA with a `Resolver`
+
+Core only knows how to connect a changed file to a test through actual code
+coverage (plus a same-directory fallback for files nothing has covered yet).
+Some changes — a database migration, a Blade template, a config file — affect
+tests without ever being `require`d by one. A `Resolver` lets you teach TIA
+about those cases:
+
+```php
+use JMac\Testing\PhpUnit\Tia\Contracts\Resolver;
+
+final class MigrationResolver implements Resolver
+{
+    public function resolve(string $projectRoot, string $changedRelativePath): array
+    {
+        if (! str_starts_with($changedRelativePath, 'database/migrations/')) {
+            return [];
+        }
+
+        return ['tests/Feature/WidgetTest.php'];
+    }
+}
+```
+
+Register it in an optional `phpunit-tia.php` file in your project root
+(PHPUnit's own `phpunit.xml` `<parameter>` tags are flat strings and can't
+express a list of classes):
+
+```php
+<?php
+
+return [
+    'resolvers' => [
+        MigrationResolver::class,
+        // or an already-constructed instance, if it needs dependencies
+    ],
+];
+```
+
+`resolve()` is called once per changed file core couldn't map to a known
+source edge; return the affected test files, or `[]` if this resolver has no
+opinion on that path.

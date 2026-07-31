@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace JMac\Testing\PhpUnit\Tia\Tests;
 
 use JMac\Testing\PhpUnit\Tia\ChangedFiles;
+use JMac\Testing\PhpUnit\Tia\Contracts\Resolver;
 use JMac\Testing\PhpUnit\Tia\FileState;
 use JMac\Testing\PhpUnit\Tia\Fingerprint;
 use JMac\Testing\PhpUnit\Tia\Graph;
@@ -158,6 +159,36 @@ final class TiaTest extends TestCase
         [$class, $method] = $this->recordPassingTest(fingerprint: $fingerprint);
 
         Tia::configure($this->repo->path(), 'local');
+
+        $this->assertNull(Tia::instance()->cachedStatusIfUnaffected($class, $method));
+    }
+
+    #[Test]
+    public function it_passes_configured_resolvers_through_to_the_graphs_affected_computation(): void
+    {
+        // An unrelated, uncovered file with no known edge and no sibling in
+        // the graph — core alone (direct edges + sibling-directory fallback,
+        // §4.3) has no way to connect it to FooTest. Only a registered
+        // Resolver (§4.3, §8) can mark FooTest affected here, proving the
+        // extension point is actually wired end-to-end from configure()
+        // through attemptBoot() into Graph::affected() — not just reachable
+        // via Graph::setResolvers() in a unit test that bypasses Tia entirely.
+        [$class, $method] = $this->recordPassingTest();
+        $this->repo->write('database/migrations/2024_01_01_create_widgets_table.php', "<?php\n");
+
+        $resolver = new class implements Resolver
+        {
+            public function resolve(string $projectRoot, string $changedRelativePath): array
+            {
+                if ($changedRelativePath === 'database/migrations/2024_01_01_create_widgets_table.php') {
+                    return ['tests/FooTest.php'];
+                }
+
+                return [];
+            }
+        };
+
+        Tia::configure($this->repo->path(), 'local', [$resolver]);
 
         $this->assertNull(Tia::instance()->cachedStatusIfUnaffected($class, $method));
     }
