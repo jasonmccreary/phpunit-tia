@@ -5,13 +5,13 @@ This is a port of Pest's new [Test Impact Analysis (TIA) Engine](https://pestphp
 
 ## Installation
 
-Requires PHP 8.4 and PHPUnit 13.
+This plugin requires PHPUnit 13 and PHP 8.4. If you are not running PHPUnit 13, you may use [Shift to automate the upgrade](https://laravelshift.com/upgrade-phpunit-13).
 
 ```
 composer require --dev jasonmccreary/phpunit-tia
 ```
 
-Register the extension in `phpunit.xml`:
+Next, register the extension in your PHPUnit configuration:
 
 ```xml
 <extensions>
@@ -21,7 +21,8 @@ Register the extension in `phpunit.xml`:
 </extensions>
 ```
 
-Add the trait to your base `TestCase`:
+## Usage
+To enable TIA, add the trait to your base `TestCase`:
 
 ```php
 use JMac\Testing\PhpUnit\Tia\Traits\RunWithTia;
@@ -32,13 +33,17 @@ abstract class TestCase extends \PHPUnit\Framework\TestCase
 }
 ```
 
-## Usage
+This will activate TIA for every `phpunit` invocation - unaffected tests will be
+skipped automatically.
 
-That's it — there's nothing else to run. Once the extension and trait are
-wired up, TIA is active on every `phpunit` invocation: unaffected tests are
-skipped automatically, no flag required.
+To bypass TIA, you may pass an ENV at runtime:
 
-Two env vars cover the rest:
+```sh
+PHPUNIT_TIA=0 phpunit ...
+```
 
-- `PHPUNIT_TIA=0` — disable for this run (e.g. CI full-suite runs, release branches)
-- `PHPUNIT_TIA_FRESH=1` — ignore the cached graph and rebuild from scratch
+While a baseline will be established automatically, you may pass an ENV to rebuild:
+
+```sh
+PHPUNIT_TIA_FRESH=1 phpunit ...
+```
