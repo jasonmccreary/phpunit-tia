@@ -70,6 +70,24 @@ final class RunWithTiaTest extends TestCase
     }
 
     #[Test]
+    public function it_reports_skippedByTia_true_only_after_a_tia_skip(): void
+    {
+        $this->recordPassingResult();
+        $fixture = $this->fixtureInstance();
+
+        $this->assertFalse($fixture->skippedByTiaForTest());
+
+        try {
+            $fixture->setUp();
+            $this->fail('Expected setUp() to skip the test via TIA.');
+        } catch (SkippedWithMessageException) {
+            // expected
+        }
+
+        $this->assertTrue($fixture->skippedByTiaForTest());
+    }
+
+    #[Test]
     public function it_does_not_skip_when_the_source_file_changed(): void
     {
         $this->recordPassingResult();
@@ -178,6 +196,11 @@ final class RunWithTiaTest extends TestCase
             public function test_it_works(): void
             {
                 \$this->assertTrue(true);
+            }
+
+            public function skippedByTiaForTest(): bool
+            {
+                return \$this->skippedByTia();
             }
         }
 

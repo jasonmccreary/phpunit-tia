@@ -14,6 +14,8 @@ use PHPUnit\Framework\TestStatus\TestStatus;
  */
 trait RunWithTia
 {
+    private bool $skippedByTia = false;
+
     protected function setUp(): void
     {
         $tia = Tia::instance();
@@ -21,6 +23,7 @@ trait RunWithTia
         $status = $tia->cachedStatusIfUnaffected(static::class, $method);
 
         if ($status !== null && ! $tia->shouldRerunStatus(TestStatus::skipped())) {
+            $this->skippedByTia = true;
             $this->addToAssertionCount($tia->cachedAssertionCount(static::class, $method));
             $this->markTestSkipped(sprintf(
                 'TIA: unaffected since %s, last run passed',
@@ -29,5 +32,20 @@ trait RunWithTia
         }
 
         parent::setUp();
+    }
+
+    /**
+     * A skipped test never reaches `parent::setUp()` (§ above) — anything
+     * that hook would normally provide (an app container, a DB connection,
+     * a resolved facade root, ...) is simply absent. tearDown() still runs
+     * unconditionally (PHPUnit always invokes 'after' hooks once a test has
+     * started; see docs/decisions.md), so any custom tearDown() that
+     * depends on setUp() having actually run must guard itself with this.
+     * A tearDown() that throws instead turns the skip into a failure/error
+     * (PHPUnit demotes it — see docs/decisions.md).
+     */
+    protected function skippedByTia(): bool
+    {
+        return $this->skippedByTia;
     }
 }
