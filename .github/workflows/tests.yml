@@ -15,7 +15,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # TIA diffs against a baseline commit recorded on a previous run
           # (git merge-base/diff), so it needs real history, not the
@@ -38,7 +38,7 @@ jobs:
           tools: composer:v2
 
       - name: Cache Composer dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: vendor
           key: composer-${{ runner.os }}-${{ hashFiles('composer.json') }}
@@ -49,7 +49,7 @@ jobs:
         run: composer install --prefer-dist --no-interaction --no-progress
 
       - name: Cache phpunit-tia graph
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           # Default "global" storage mode (phpunit.xml.dist) — outside the
           # repo, keyed by git remote, so every checkout/runner for this
