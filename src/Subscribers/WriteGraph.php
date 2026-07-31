@@ -12,6 +12,7 @@ use JMac\Testing\PhpUnit\Tia\Graph;
 use JMac\Testing\PhpUnit\Tia\Recorder;
 use JMac\Testing\PhpUnit\Tia\ResultCollector;
 use JMac\Testing\PhpUnit\Tia\Storage;
+use JMac\Testing\PhpUnit\Tia\Tia;
 use PHPUnit\Event\TestRunner\ExecutionFinished;
 use PHPUnit\Event\TestRunner\ExecutionFinishedSubscriber;
 use PHPUnit\Runner\CodeCoverage;
@@ -26,8 +27,6 @@ use PHPUnit\Runner\CodeCoverage;
  */
 final readonly class WriteGraph implements ExecutionFinishedSubscriber
 {
-    private const string GRAPH_KEY = 'graph.json';
-
     public function __construct(
         private string $projectRoot,
         private ResultCollector $results,
@@ -88,7 +87,7 @@ final readonly class WriteGraph implements ExecutionFinishedSubscriber
         $encoded = $graph->encode();
 
         if ($encoded !== null) {
-            $state->write(self::GRAPH_KEY, $encoded);
+            $state->write(Storage::GRAPH_KEY, $encoded);
         }
     }
 
@@ -97,7 +96,13 @@ final readonly class WriteGraph implements ExecutionFinishedSubscriber
      */
     private function loadGraph(State $state, array $currentFingerprint, string $branch): Graph
     {
-        $existing = $state->read(self::GRAPH_KEY);
+        if (Tia::isFresh()) {
+            // PHPUNIT_TIA_FRESH=1 (§7) — ignore whatever's on disk and
+            // rebuild the graph from this run alone.
+            return new Graph($this->projectRoot);
+        }
+
+        $existing = $state->read(Storage::GRAPH_KEY);
 
         if ($existing === null) {
             return new Graph($this->projectRoot);

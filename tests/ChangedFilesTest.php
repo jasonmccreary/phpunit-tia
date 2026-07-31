@@ -127,6 +127,59 @@ final class ChangedFilesTest extends TestCase
     }
 
     #[Test]
+    public function since_translates_paths_when_project_root_is_a_repo_subdirectory(): void
+    {
+        // A monorepo-style install (or this package's own fixture-app/
+        // during dogfooding): $projectRoot is a subdirectory of the git
+        // repo, not its top level. git status/diff always print paths
+        // relative to the repo root regardless of cwd, so without
+        // translation these would come back prefixed with 'pkg/' instead of
+        // matching the graph's own pkg-relative edge keys.
+        $this->repo->write('outer.txt', "irrelevant\n");
+        $this->repo->write('pkg/src/Foo.php', "<?php\nfinal class Foo {}\n");
+        $this->repo->commit('add outer file + pkg');
+
+        $this->repo->write('pkg/src/Bar.php', "<?php\n");
+        $this->repo->write('outer.txt', "changed outside the package\n");
+
+        $changedFiles = new ChangedFiles($this->repo->path().'/pkg');
+
+        $this->assertSame(['src/Bar.php'], $changedFiles->since(null));
+    }
+
+    #[Test]
+    public function since_sha_behavioural_diff_works_when_project_root_is_a_repo_subdirectory(): void
+    {
+        $this->repo->write('pkg/src/Foo.php', "<?php\nfunction foo() {\n    return 1;\n}\n");
+        $baseline = $this->repo->commit('add pkg/Foo');
+
+        // Reformat only (behaviourally unchanged) — exercises contentAtSha's
+        // git show <sha>:<repo-root-relative path> lookup, which needs the
+        // prefix re-applied since git object addressing ignores cwd.
+        $this->repo->write('pkg/src/Foo.php', "<?php\nfunction foo(){return 1;}\n");
+        $this->repo->commit('reformat pkg/Foo');
+
+        $changedFiles = new ChangedFiles($this->repo->path().'/pkg');
+
+        $this->assertSame([], $changedFiles->since($baseline));
+    }
+
+    #[Test]
+    public function since_ignores_gitignored_files_when_project_root_is_a_repo_subdirectory(): void
+    {
+        $this->repo->write('pkg/.gitignore', "ignored.php\n");
+        $this->repo->write('pkg/src/Foo.php', "<?php\n");
+        $this->repo->commit('add pkg with gitignore');
+
+        $this->repo->write('pkg/ignored.php', "<?php\n");
+        $this->repo->write('pkg/tracked.php', "<?php\n");
+
+        $changedFiles = new ChangedFiles($this->repo->path().'/pkg');
+
+        $this->assertSame(['tracked.php'], $changedFiles->since(null));
+    }
+
+    #[Test]
     public function snapshot_tree_hashes_each_file(): void
     {
         $this->repo->write('src/Foo.php', "<?php\nfinal class Foo {}\n");

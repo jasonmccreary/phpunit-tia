@@ -159,6 +159,18 @@ final class Graph
         return $rel !== null && isset($this->edges[$rel]);
     }
 
+    /**
+     * Public seam onto the same path-normalization relative() applies to
+     * every edge/affected() key, so callers outside Graph (Tia's replay
+     * decision) can translate a reflected test file into the identical key
+     * space without duplicating the absolute/relative + vendor/-exclusion
+     * logic here.
+     */
+    public function relativePath(string $path): ?string
+    {
+        return $this->relative($path);
+    }
+
     /** @return array<int, string> */
     public function allTestFiles(): array
     {

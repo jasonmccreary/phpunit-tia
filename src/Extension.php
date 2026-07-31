@@ -23,8 +23,24 @@ final class Extension implements ExtensionContract
 {
     public function bootstrap(Configuration $configuration, Facade $facade, ParameterCollection $parameters): void
     {
+        if (! Tia::isEnabled()) {
+            fwrite(STDERR, "phpunit-tia: disabled via PHPUNIT_TIA=0.\n");
+
+            return;
+        }
+
+        $projectRoot = $this->projectRoot($configuration);
+        $storageMode = $this->storageMode($parameters);
+
+        // Configure the replay side unconditionally, before the driver check
+        // below: reading an already-recorded graph and skipping unaffected
+        // tests needs no coverage driver at all, only recording new edges
+        // does. This lets RunWithTia keep working on a machine that lost its
+        // driver after the graph was written elsewhere (e.g. CI vs. local).
+        Tia::configure($projectRoot, $storageMode);
+
         if (! $this->coverageDriverAvailable()) {
-            fwrite(STDERR, "phpunit-tia: no coverage driver (pcov/xdebug) available — TIA disabled for this run.\n");
+            fwrite(STDERR, "phpunit-tia: no coverage driver (pcov/xdebug) available — recording disabled for this run.\n");
 
             return;
         }
@@ -50,7 +66,7 @@ final class Extension implements ExtensionContract
             new RecordTestMarkedIncomplete($results),
             new RecordTestConsideredRisky($results),
             new RecordTestFinished($results),
-            new WriteGraph($this->projectRoot($configuration), $results, $this->storageMode($parameters)),
+            new WriteGraph($projectRoot, $results, $storageMode),
         );
     }
 

@@ -1,7 +1,7 @@
 # PHPUnit TIA
 This is a port of Pest's new [Test Impact Analysis (TIA) Engine](https://pestphp.com/docs/tia). TIA greatly improves test suite performance by only running tests which relate to impacted (changed) files. This plugin brings the same performance improvements to PHPUnit.
 
-**Note:** as a third-party plugin, the actual test runner can not be changed. Instead of preserving the previous state, unimpacted tests are marked at "skipped" (`S`). This will affect test runs using the `--fail-on-skipped` option.
+**Note:** as a third-party plugin, the actual test runner can not be changed. Instead of preserving the previous state, unimpacted tests are marked as `skipped` (`S`). Suites running `--fail-on-skipped` (or `--display-skipped`) don't need to opt out manually — TIA detects this and automatically falls back to actually running the test instead of replaying a skip that policy would flag as CI-red.
 
 ## Installation
 
@@ -16,7 +16,7 @@ Next, register the extension in your PHPUnit configuration:
 ```xml
 <extensions>
     <bootstrap class="JMac\Testing\PhpUnit\Tia\Extension">
-        <parameter name="storage" value="global"/> <!-- global (~/.phpunit-tia) | local (.phpunit-tia, gitignored) -->
+        <parameter name="storage" value="global"/>
     </bootstrap>
 </extensions>
 ```
@@ -33,16 +33,16 @@ abstract class TestCase extends \PHPUnit\Framework\TestCase
 }
 ```
 
-This will activate TIA for every `phpunit` invocation - unaffected tests will be
+This will activate TIA for every `phpunit` invocation — unaffected tests will be
 skipped automatically.
 
-To bypass TIA, you may pass an ENV at runtime:
+To bypass TIA, you may pass an environment variable at runtime:
 
 ```sh
 PHPUNIT_TIA=0 phpunit ...
 ```
 
-While a baseline will be established automatically, you may pass an ENV to rebuild:
+While a baseline will be established automatically, you may pass an environment variable to rebuild:
 
 ```sh
 PHPUNIT_TIA_FRESH=1 phpunit ...

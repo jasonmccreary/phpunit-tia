@@ -18,6 +18,9 @@ namespace JMac\Testing\PhpUnit\Tia;
  */
 final class Storage
 {
+    /** Shared FileState key for the encoded Graph JSON (WriteGraph writes it, Tia reads it). */
+    public const string GRAPH_KEY = 'graph.json';
+
     public static function resolve(string $projectRoot, string $mode = 'global'): string
     {
         if ($mode === 'local') {

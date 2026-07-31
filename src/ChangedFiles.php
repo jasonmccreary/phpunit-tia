@@ -11,9 +11,11 @@ use Symfony\Component\Process\Process;
  * Git diff/status plumbing (§4.2). Ported near-verbatim from Pest's
  * ChangedFiles.php — pure Symfony\Process + git, no PHPUnit coupling.
  */
-final readonly class ChangedFiles
+final class ChangedFiles
 {
-    public function __construct(private string $projectRoot) {}
+    private ?string $prefix = null;
+
+    public function __construct(private readonly string $projectRoot) {}
 
     /**
      * @param  array<int, string>  $files  project-relative paths.
@@ -156,7 +158,13 @@ final readonly class ChangedFiles
 
     private function contentAtSha(string $sha, string $path): ?string
     {
-        $process = new Process(['git', 'show', $sha.':'.$path], $this->projectRoot);
+        // git's sha:path object notation is always repo-root-relative,
+        // regardless of cwd — unlike git status/diff output, which this
+        // class otherwise translates to $projectRoot-relative (see
+        // toProjectRelative()). $path here has already been through that
+        // translation, so re-apply the prefix to address the object git's
+        // way.
+        $process = new Process(['git', 'show', $sha.':'.$this->prefix().$path], $this->projectRoot);
         $process->setTimeout(5.0);
         $process->run();
 
@@ -165,6 +173,52 @@ final readonly class ChangedFiles
         }
 
         return $process->getOutput();
+    }
+
+    /**
+     * git status/diff always print paths relative to the repository's top
+     * level, not to $projectRoot (this class's cwd for every git
+     * invocation) — true even when $projectRoot is a subdirectory of a
+     * larger repo (a monorepo-style install, or this package's own
+     * fixture-app/ during dogfooding). --show-prefix is git's own plumbing
+     * for "where am I relative to the top level" (empty when $projectRoot
+     * already is the top level) — the correct tool to translate those paths
+     * back to $projectRoot-relative ones. Anything outside that subtree is
+     * dropped: a change there can't affect this project's own test graph.
+     *
+     * @param  array<int, string>  $paths  repo-root-relative paths from git
+     * @return array<int, string> $projectRoot-relative paths
+     */
+    private function toProjectRelative(array $paths): array
+    {
+        $prefix = $this->prefix();
+
+        if ($prefix === '') {
+            return $paths;
+        }
+
+        $relative = [];
+
+        foreach ($paths as $path) {
+            if (str_starts_with($path, $prefix)) {
+                $relative[] = substr($path, strlen($prefix));
+            }
+        }
+
+        return $relative;
+    }
+
+    private function prefix(): string
+    {
+        if ($this->prefix !== null) {
+            return $this->prefix;
+        }
+
+        $process = new Process(['git', 'rev-parse', '--show-prefix'], $this->projectRoot);
+        $process->setTimeout(5.0);
+        $process->run();
+
+        return $this->prefix = $process->isSuccessful() ? trim($process->getOutput()) : '';
     }
 
     /**
@@ -246,7 +300,7 @@ final readonly class ChangedFiles
             throw new GitUnavailableException('TIA mode');
         }
 
-        return $this->splitLines($process->getOutput());
+        return $this->toProjectRelative($this->splitLines($process->getOutput()));
     }
 
     /**
@@ -298,7 +352,7 @@ final readonly class ChangedFiles
             $files[] = $path;
         }
 
-        return $files;
+        return $this->toProjectRelative($files);
     }
 
     public function currentSha(): ?string
