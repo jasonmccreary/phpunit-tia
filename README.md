@@ -66,4 +66,3 @@ While a baseline will be established automatically, you may pass an environment 
 ```sh
 PHPUNIT_TIA_FRESH=1 phpunit ...
 ```
-```
