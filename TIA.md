@@ -5,19 +5,26 @@ Test Impact Analysis for vanilla PHPUnit, shipped as a composer package: a
 plus a `RunWithTia` trait projects drop into their base `TestCase` (skips
 re-running tests the graph says are unaffected and last known to pass).
 
-This doc was written against Pest's actual TIA source as a reference
-implementation, and against PHPUnit 12.x's real extension surface (verified
-by reading vendor source, not docs). Every claim about what PHPUnit's public
-API can/can't do was checked against code, not assumed — see §6,
-[Verified PHPUnit surface](#6-verified-phpunit-surface).
+This doc was originally written against Pest's actual TIA source as a
+reference implementation, and against a PHPUnit 12.x checkout's extension
+surface. **Update (milestone 1, built against this package's own
+`vendor/phpunit/phpunit`):** the package now targets **PHPUnit 13.2.6 only**
+(`composer.json`: `"phpunit/phpunit": "^13.2.6"`, `php: "^8.4"`), matching
+Pest's own `^13.2.6` constraint — see [§4.1a](#41a-milestone-1-findings-verified-against-phpunit-1326)
+for why pinning to one major/minor beats supporting a range here: two
+`@internal`-marked bugs (filter-registry crash, silent full-suite skip) were
+found empirically, not documented, and the point of this doc is to verify
+against real vendor source rather than assume compatibility across versions
+of surface PHPUnit itself doesn't promise to keep stable.
 
 All paths below are absolute so this doc still resolves correctly once moved
 out of the Pest repo into the new plugin project: `/Users/jason/workspace/pest/src/...`
 paths point at Pest's actual TIA source (reference only — reimplement, don't
-copy verbatim); `.../vendor/phpunit/phpunit/src/...` paths point at a
-PHPUnit 12 checkout used to verify the extension API (any project with
-`phpunit/phpunit` installed works — keep this repo, or some other
-PHPUnit-installed project, around to re-check them if needed).
+copy verbatim); `.../vendor/phpunit/phpunit/src/...` paths originally pointed
+at a stale PHPUnit 11.5.43 checkout (`/Users/jason/workspace/blueprint`) — that
+repo is no longer an accurate reference for this project's target version.
+Re-verify claims against `/Users/jason/workspace/phpunit-tia/vendor/phpunit/phpunit/src/...`
+(this package's own pinned 13.2.6 install) going forward.
 
 ---
 
@@ -131,13 +138,75 @@ Read this once at the end of the run (`TestRunner\ExecutionFinished` event or
 equivalent), not per-test — `getData()->lineCoverage()` already has the
 per-line test-id attribution baked in by PHPUnit's own coverage collector.
 
-**Open question to verify when building**: does
-`requireCodeCoverageCollection()` hard-fail if no driver (pcov/xdebug) is
-installed at all, or does it silently no-op? If it hard-fails, `bootstrap()`
-needs its own driver-presence check first (`function_exists('pcov\\start')` /
-`xdebug_info()`) and should degrade to "extension disabled this run, warn
-once" rather than breaking the suite — same posture as
-`/Users/jason/workspace/pest/src/Plugins/Tia/Recorder.php:68-87`'s `driverAvailable()`.
+**Open question — resolved (milestone 1, empirically verified against real
+PHPUnit 12.5.33 and 13.2.6 installs, source-read against both, behavior
+identical in both)**: neither a hard-fail nor a silent no-op — something
+worse, and in two independent ways. Both are `@internal`-marked PHPUnit
+internals, not documented behavior, so treat this as "verified snapshot of
+13.2.6," not a permanent guarantee.
+
+#### 4.1a Milestone 1 findings (verified against PHPUnit 13.2.6)
+
+**Bug 1 — filter-registry crash.** `PHPUnit\Runner\CodeCoverage::init()`
+(`vendor/phpunit/phpunit/src/Runner/CodeCoverage.php:78`) calls
+`$codeCoverageFilterRegistry->init($configuration)` with no second argument,
+so `CodeCoverageFilterRegistry::init()`'s `$force` parameter defaults to
+`false` (`vendor/phpunit/phpunit/src/TextUI/Configuration/CodeCoverageFilterRegistry.php:52`).
+That method only builds `$this->filter` when `$configuration->hasCoverageReport()`
+is true (i.e. a `<coverage><report>` target like `clover`/`html`/`php` is
+configured) — it does **not** check whether an extension called
+`requireCodeCoverageCollection()`. But `CodeCoverage::init()`'s own
+early-return check three lines later *does* account for the extension flag
+(`!$configuration->hasCoverageReport() && !$extensionRequiresCodeCoverageCollection`),
+so with an extension requiring coverage and zero report targets configured,
+execution proceeds into `$codeCoverageFilterRegistry->get()`
+(`CodeCoverageFilterRegistry.php:44`), which does `assert($this->filter !== null)`
+— and crashes, because the filter was never built. Reproduced with `zend.assertions=1`
+(PHP's dev default); with assertions compiled out it would instead be a
+`TypeError` on `get()`'s non-nullable `Filter` return type. Confirmed
+byte-identical in both `CodeCoverage.php` and `CodeCoverageFilterRegistry.php`
+between PHPUnit 12.5.33 and 13.2.6.
+
+**Fix**: `Extension::bootstrap()` pre-populates the registry itself —
+`CodeCoverageFilterRegistry::instance()->init($configuration, true)` — before
+calling `$facade->requireCodeCoverageCollection()`. This relies on an
+`@internal` class, a deliberate tradeoff (chosen over requiring every
+consumer's `phpunit.xml` to add a throwaway `<coverage><report>` block) so
+the package keeps its §1 promise of "register the extension, add the trait,
+nothing else." Risk is contained: this package pins to one exact PHPUnit
+minor line, and the package's own test suite (running against that pinned
+version) will catch a signature/behavior change immediately rather than a
+consumer hitting it silently in production.
+
+**Bug 2 — silent full-suite skip with no driver.** Independent of bug 1.
+`CodeCoverage::init()` returns a `CodeCoverageInitializationStatus` enum
+(`NOT_REQUESTED` / `SUCCEEDED` / `FAILED`) — `FAILED` when `activate()`'s
+internal `Selector` can't find pcov/xdebug/phpdbg and throws
+`NoCodeCoverageDriverAvailableException` (caught internally, converted to a
+`testRunnerTriggeredPhpunitWarning` event, not rethrown). `TextUI\Application::run()`
+(`Application.php:225-234`) only calls `$runner->run(...)` when that status is
+`NOT_REQUESTED` or `SUCCEEDED` — on `FAILED` it skips test execution
+**entirely**, with no exception and no clear error: the process exits 1 with
+just `"No tests executed!"` printed. So the answer to the original open
+question is: an extension that unconditionally calls
+`requireCodeCoverageCollection()` on a machine with no coverage driver
+doesn't disable itself gracefully — it silently prevents the *entire test
+suite* from running, which is far worse than either guessed outcome.
+
+**Fix**: exactly the driver-presence check this doc already anticipated as
+the *if it hard-fails* contingency — `Extension::bootstrap()` checks
+`function_exists('pcov\\start') && ini_get('pcov.enabled')` /
+`xdebug_info('mode')` containing `'coverage'` (mirrors Pest's verified
+`/Users/jason/workspace/pest/src/Plugins/Tia/Recorder.php:68-87` `driverAvailable()`
+logic, not a blunt `extension_loaded()` check — pcov can be loaded but
+ini-disabled, xdebug can be loaded in a mode without coverage) **before**
+calling `requireCodeCoverageCollection()`. No driver → write one line to
+STDERR and return from `bootstrap()` without requiring coverage; PHPUnit then
+sees `NOT_REQUESTED` and runs the suite normally, just without TIA active for
+that run. Verified end-to-end in `fixture-app/` (no driver on the dev
+machine): tests execute and pass; forcing past this check to isolate bug 1
+reproduces the clean warning-event path with no crash, confirming the two
+fixes are independent and both necessary.
 
 ### 4.2 Change detection — port `ChangedFiles.php` + `ContentHash.php` almost verbatim
 
@@ -295,15 +364,22 @@ namespaced key in the same `State` store rather than bloating this schema):
 
 ## 6. Verified PHPUnit surface
 
-Everything below was confirmed by reading `phpunit/phpunit` 12.x source
-directly (not assumed from docs), since a design built on a guessed API is
-worse than no design.
+Everything below was originally confirmed by reading a PHPUnit 11.5.43
+checkout (`/Users/jason/workspace/blueprint`) directly (not assumed from
+docs), since a design built on a guessed API is worse than no design. As of
+milestone 1 the package targets 13.2.6 specifically (see the doc header and
+§4.1a) — the `Extension`/`Facade`/`TestCase` surface below was spot-checked
+against 13.2.6 and is unchanged; the paths still point at the older blueprint
+checkout as a readable reference, but re-verify against
+`/Users/jason/workspace/phpunit-tia/vendor/phpunit/phpunit/src/...` (this
+package's own pinned install) if anything here is load-bearing for new work.
 
 - **Registration**: `phpunit.xml` `<extensions><bootstrap class="Vendor\Extension"><parameter name="k" value="v"/></bootstrap></extensions>`. Parsed into `Configuration::extensionBootstrappers()` (`/Users/jason/workspace/blueprint/vendor/phpunit/phpunit/src/TextUI/Configuration/Configuration.php:869`) and instantiated by `ExtensionBootstrapper::bootstrap()` (`/Users/jason/workspace/blueprint/vendor/phpunit/phpunit/src/Runner/Extension/ExtensionBootstrapper.php:41-83`) — reflection-instantiated with **no constructor arguments**, so all config must arrive via the `ParameterCollection` passed to `bootstrap()`, not the constructor.
 - **`Extension` interface** (`/Users/jason/workspace/blueprint/vendor/phpunit/phpunit/src/Runner/Extension/Extension.php`): one method, `bootstrap(Configuration $configuration, Facade $facade, ParameterCollection $parameters): void`. Runs *before* `TestSuiteBuilder` builds the suite (`Application.php:140` vs `:182`) — but `Facade` has no method to influence *which* tests get built, only observation/coverage/output flags (confirmed by reading `Facade.php` in full — it's a 94-line class, every public method is listed in §6.1 below). This is why test *selection* (running only affected tests) is not achievable from inside the extension — see §8.
 - **`Facade`** (`/Users/jason/workspace/blueprint/vendor/phpunit/phpunit/src/Runner/Extension/Facade.php`) — full public surface: `registerSubscribers()`, `registerSubscriber()`, `registerTracer()`, `replaceOutput()`, `replacesOutput()`, `replaceProgressOutput()`, `replacesProgressOutput()`, `replaceResultOutput()`, `replacesResultOutput()`, `requireCodeCoverageCollection()`, `requiresCodeCoverageCollection()`. That's the entire menu.
 - **`TestCase`** constraints — see §3 for the full argument; the short version: `run()`/`runBare()` are `final`, `runTest()` is `private` and calls the real method directly, `setUp()` is the only open hook, `addToAssertionCount()` is `final public` (callable from a trait).
-- **Coverage read-back**: `PHPUnit\Runner\CodeCoverage::instance()->codeCoverage()->getData()->lineCoverage()` — confirmed shape and usage via `/Users/jason/workspace/pest/src/Plugins/Tia/CoverageCollector.php:25-33`, which already uses this exact public API (Pest's piggyback mode, not its driven mode).
+- **Coverage read-back**: `PHPUnit\Runner\CodeCoverage::instance()->codeCoverage()->getData()->lineCoverage()` — confirmed shape and usage via `/Users/jason/workspace/pest/src/Plugins/Tia/CoverageCollector.php:25-33`, which already uses this exact public API (Pest's piggyback mode, not its driven mode). Real return type confirmed via `ProcessedCodeCoverageData::lineCoverage()` (`vendor/phpunit/php-code-coverage/src/Data/ProcessedCodeCoverageData.php:29`): `@phpstan-type LineCoverageType = array<string, array<int, null|list<string>>>` — matches the doc's assumed shape exactly.
+- **`CodeCoverageFilterRegistry` and `CodeCoverageInitializationStatus`** (both `@internal`, `PHPUnit\TextUI\Configuration\` / `PHPUnit\Runner\`) — not part of the originally-planned verified surface, but load-bearing in practice; see §4.1a for the two bugs found here and how `Extension::bootstrap()` works around them.
 
 ---
 
@@ -366,7 +442,7 @@ Env var escape hatches worth having from day one (mirrors
 
 ## 10. Suggested milestones
 
-1. `Extension::bootstrap()` that just calls `requireCodeCoverageCollection()` and dumps `lineCoverage()` shape to a file — validates §4.1's open question before anything else is built on top of it.
+1. ~~`Extension::bootstrap()` that just calls `requireCodeCoverageCollection()` and dumps `lineCoverage()` shape to a file~~ — **done**. Validated against real PHPUnit 12.5.33 and 13.2.6 installs; found two `@internal` bugs neither guessed outcome in §4.1 anticipated (see §4.1a), fixed both in `Extension::bootstrap()`, pinned the package to PHPUnit 13.2.6 only as a result. `src/Subscribers/DumpCoverageShape.php` is the throwaway shape-dump subscriber — still in place, will be superseded by the real `Recorder` in milestone 3, not deleted yet since it's still useful for dogfooding until then. Not yet validated with a real driver (pcov/xdebug) active — this dev machine has neither installed and a pcov install attempt hit an unrelated broken-Homebrew-autoconf issue; the `array<sourceFile, array<line, list<testId>|null>>` shape is confirmed correct by direct source reading (§6) but not yet observed live.
 2. `ChangedFiles` + `ContentHash` + `Fingerprint`, unit-tested against a scratch git repo — no PHPUnit coupling, can be built/tested in isolation first.
 3. `Graph` core (edges, `affected()` without any `Resolver`, baselines, `encode`/`decode`) + `ResultCollector` via event subscribers — wire into the `Extension`, confirm a graph gets written after a real run.
 4. `RunWithTia` trait against the graph from step 3 — confirm skip-with-cached-assertions behaves correctly under `--fail-on-skipped` both on and off.
