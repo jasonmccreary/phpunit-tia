@@ -5,7 +5,7 @@ This is a port of Pest's new [Test Impact Analysis (TIA) Engine](https://pestphp
 
 ## Installation
 
-This plugin requires PHPUnit 13 and PHP 8.4. If you are not running PHPUnit 13, you may use [Shift to automate the upgrade](https://laravelshift.com/upgrade-phpunit-13).
+This plugin requires PHPUnit 13 and PHP 8.4, as well as a code coverage driver ([pcov](https://github.com/krakjoe/pcov) or [Xdebug](https://xdebug.org/) in `coverage` mode) to record new coverage. If you are not running PHPUnit 13, you may use [Shift to automate the upgrade](https://laravelshift.com/upgrade-phpunit-13).
 
 ```
 composer require --dev jasonmccreary/phpunit-tia

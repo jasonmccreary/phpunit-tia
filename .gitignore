@@ -4,8 +4,8 @@
 /.phpunit-tia/
 /.phpunit.result.cache
 
-fixture-app/vendor/
-fixture-app/composer.lock
-fixture-app/.phpunit.cache/
-fixture-app/.phpunit-tia/
-fixture-app/.phpunit.result.cache
+tests/fixture-app/vendor/
+tests/fixture-app/composer.lock
+tests/fixture-app/.phpunit.cache/
+tests/fixture-app/.phpunit-tia/
+tests/fixture-app/.phpunit.result.cache

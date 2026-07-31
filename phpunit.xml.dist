@@ -7,6 +7,7 @@
     <testsuites>
         <testsuite name="unit">
             <directory>tests</directory>
+            <exclude>tests/fixture-app</exclude>
         </testsuite>
     </testsuites>
 

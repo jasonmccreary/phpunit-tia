@@ -1,6 +1,6 @@
 {
     "name": "jasonmccreary/phpunit-tia",
-    "description": "Test Impact Analysis for vanilla PHPUnit: skip unaffected tests based on a recorded test↔source coverage graph.",
+    "description": "Test Impact Analysis for PHPUnit",
     "keywords": [
         "php",
         "phpunit",
