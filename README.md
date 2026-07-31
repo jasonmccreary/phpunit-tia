@@ -66,3 +66,13 @@ While a baseline will be established automatically, you may pass an environment 
 ```sh
 PHPUNIT_TIA_FRESH=1 phpunit ...
 ```
+
+## CI Workflows
+For TIA to skip tests in CI, its baseline graph must persist between runs. See our own [tests.yml](.github/workflows/tests.yml) for a working example. At a high level, your workflow needs to:
+
+- Check out with full git history (`fetch-depth: 0`), since TIA diffs against a baseline commit
+- Re-attach `HEAD` to the real branch name, since a detached `HEAD` collapses baselines across branches
+- Cache TIA's storage directory (`~/.phpunit-tia` for `global` storage, or the configured path for `local`) keyed per-branch/runner, and save it after every run
+
+## Contributing
+You may contribute by opening a Pull Request with your changes. All PRs should target `main`, include tests to verify your change change, and pass the GitHub Action workflows.
