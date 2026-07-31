@@ -54,6 +54,22 @@ final class RunWithTiaTest extends TestCase
     }
 
     #[Test]
+    public function it_skips_a_known_unaffected_cached_pass_for_a_data_provided_test(): void
+    {
+        $sha = $this->recordPassingDataProvidedResult(dataSetName: 3, assertions: 2);
+        $fixture = $this->fixtureInstance(dataName: 3);
+
+        try {
+            $fixture->setUp();
+            $this->fail('Expected setUp() to skip the test via TIA.');
+        } catch (SkippedWithMessageException $e) {
+            $this->assertSame("TIA: unaffected since {$sha}, last run passed", $e->getMessage());
+        }
+
+        $this->assertSame(2, $fixture->numberOfAssertionsPerformed());
+    }
+
+    #[Test]
     public function it_does_not_skip_when_the_source_file_changed(): void
     {
         $this->recordPassingResult();
@@ -173,10 +189,96 @@ final class RunWithTiaTest extends TestCase
         return $class;
     }
 
-    private function fixtureInstance(): TestCase
+    /**
+     * Same as defineFixtureClass(), but test_it_works() is data-provided —
+     * this reproduces a regression where the read side (keyed off
+     * TestCase::name(), no data-set suffix) missed the write side (keyed
+     * off TestMethod::id(), suffixed with '#<dataSetName>').
+     */
+    private function defineFixtureClassWithDataProvider(): string
+    {
+        $class = 'FixtureUsingTia'.bin2hex(random_bytes(6));
+        $path = $this->repo->path().'/tests/FixtureUsingTia.php';
+
+        $code = <<<PHP
+        <?php
+
+        declare(strict_types=1);
+
+        use JMac\Testing\PhpUnit\Tia\Traits\RunWithTia;
+        use PHPUnit\Framework\Attributes\DataProvider;
+        use PHPUnit\Framework\TestCase;
+
+        final class {$class} extends TestCase
+        {
+            use RunWithTia;
+
+            #[DataProvider('provideCases')]
+            public function test_it_works(int \$value): void
+            {
+                \$this->assertTrue(true);
+            }
+
+            public static function provideCases(): array
+            {
+                return [[1], [2], [3], [4]];
+            }
+        }
+
+        PHP;
+
+        $this->repo->write('tests/FixtureUsingTia.php', $code);
+        require $path;
+
+        return $class;
+    }
+
+    private function recordPassingDataProvidedResult(int|string $dataSetName, int $assertions = 3): string
+    {
+        $this->repo = TempGitRepository::create();
+        $this->repo->write('src/Foo.php', "<?php\n\nclass Foo\n{\n}\n");
+
+        $class = $this->defineFixtureClassWithDataProvider();
+        $sha = $this->repo->commit('add Foo + data-provided fixture test');
+
+        $method = 'test_it_works#'.$dataSetName;
+
+        $graph = new Graph($this->repo->path());
+        $graph->link($this->repo->path().'/tests/FixtureUsingTia.php', $this->repo->path().'/src/Foo.php');
+        $graph->setResult(
+            'main',
+            $class.'::'.$method,
+            TestStatus::success()->asInt(),
+            '',
+            0.01,
+            $assertions,
+            'tests/FixtureUsingTia.php',
+        );
+        $graph->setFingerprint(Fingerprint::compute($this->repo->path()));
+        $graph->setRecordedAtSha('main', $sha);
+
+        $changedFiles = new ChangedFiles($this->repo->path());
+        $graph->setLastRunTree('main', $changedFiles->snapshotTree(['src/Foo.php', 'tests/FixtureUsingTia.php']));
+
+        $state = new FileState(Storage::resolve($this->repo->path(), 'local'));
+        $state->write(Storage::GRAPH_KEY, (string) $graph->encode());
+
+        Tia::configure($this->repo->path(), 'local');
+        $this->fixtureClass = $class;
+
+        return $sha;
+    }
+
+    private function fixtureInstance(int|string $dataName = ''): TestCase
     {
         $class = $this->fixtureClass;
 
-        return new $class('test_it_works');
+        $test = new $class('test_it_works');
+
+        if ($dataName !== '') {
+            $test->setData($dataName, [$dataName]);
+        }
+
+        return $test;
     }
 }

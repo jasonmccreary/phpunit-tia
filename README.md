@@ -36,6 +36,25 @@ abstract class TestCase extends \PHPUnit\Framework\TestCase
 This will activate TIA for every `phpunit` invocation — unaffected tests will be
 skipped automatically.
 
+**Note:** if your `TestCase` already declares `setUp()`, you will need to
+alias and call the trait's `setUp` explicitly:
+
+```php
+abstract class TestCase extends \PHPUnit\Framework\TestCase
+{
+    use RunWithTia {
+        RunWithTia::setUp as tiaSetUp;
+    }
+
+    protected function setUp(): void
+    {
+        $this->tiaSetUp();
+
+        // ...your own setUp logic
+    }
+}
+```
+
 To bypass TIA, you may pass an environment variable at runtime:
 
 ```sh

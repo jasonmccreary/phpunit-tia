@@ -17,10 +17,11 @@ trait RunWithTia
     protected function setUp(): void
     {
         $tia = Tia::instance();
-        $status = $tia->cachedStatusIfUnaffected(static::class, $this->name());
+        $method = $this->name().($this->dataName() !== '' ? '#'.$this->dataName() : '');
+        $status = $tia->cachedStatusIfUnaffected(static::class, $method);
 
         if ($status !== null && ! $tia->shouldRerunStatus(TestStatus::skipped())) {
-            $this->addToAssertionCount($tia->cachedAssertionCount(static::class, $this->name()));
+            $this->addToAssertionCount($tia->cachedAssertionCount(static::class, $method));
             $this->markTestSkipped(sprintf(
                 'TIA: unaffected since %s, last run passed',
                 $tia->recordedAtSha() ?? 'unknown',
