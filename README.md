@@ -1,10 +1,9 @@
 # PHPUnit TIA
-This is a port of Pest's new [Test Impact Analysis (TIA) Engine](https://pestphp.com/docs/tia). TIA greatly improves test suite performance by only running tests which relate to impacted (changed) files. This plugin brings the same performance improvements to PHPUnit.
+This is a port of Pest's new [TIA Engine](https://pestphp.com/docs/tia). Test Impact Analysis (TIA) greatly improves test suite performance by only running tests which relate to impacted (changed) files. This plugin brings the same performance improvements to PHPUnit.
 
-**Note:** as a third-party plugin, the actual test runner can not be changed. Instead of preserving the previous state, unimpacted tests are marked as `skipped` (`S`). Suites running `--fail-on-skipped` (or `--display-skipped`) don't need to opt out manually — TIA detects this and automatically falls back to actually running the test instead of replaying a skip that policy would flag as CI-red.
+**Note:** third-party plugins can not change the PHPUnit test runner. So, TIA marks unimpacted tests as _skipped_ (`S`) to achieve faster replay speeds.
 
 ## Installation
-
 This plugin requires PHPUnit 13 and PHP 8.4, as well as a code coverage driver ([pcov](https://github.com/krakjoe/pcov) or [Xdebug](https://xdebug.org/) in `coverage` mode) to record new coverage. If you are not running PHPUnit 13, you may use [Shift to automate the upgrade](https://laravelshift.com/upgrade-phpunit-13).
 
 ```
@@ -20,6 +19,7 @@ Next, register the extension in your PHPUnit configuration:
     </bootstrap>
 </extensions>
 ```
+
 
 ## Usage
 To enable TIA, add the trait to your base `TestCase`:
@@ -67,12 +67,16 @@ While a baseline will be established automatically, you may pass an environment 
 PHPUNIT_TIA_FRESH=1 phpunit ...
 ```
 
+**Note:** running tests with the `--fail-on-skipped` or `--display-skipped` option will automatically bypass TIA's speed boost. You will need to drop these options to take full advantage of TIA.
+
 ## CI Workflows
-For TIA to skip tests in CI, your baseline graph must persist between runs. See our own [GitHub Action workflow](.github/workflows/tests.yml) for an example. At a high level, your workflow needs to:
+To use TIA in CI, your baseline graph must persist between runs. See our own [GitHub Action workflow](.github/workflows/tests.yml) for an example. At a high level, your workflow needs to:
 
 - Check out with full git history (`fetch-depth: 0`), since TIA diffs against a baseline commit
 - Re-attach `HEAD` to the real branch name, since a detached `HEAD` collapses baselines across branches
 - Cache TIA's storage directory (`~/.phpunit-tia` for `global` storage, or the configured path for `local`) keyed per-branch/runner, and save it after every run
 
+**Note:** TIA is intended to reduce the feedback loop during development. As such, an ideal workflow is using TIA in local environments and running the full test suite in CI environments.
+
 ## Contributing
-You may contribute by opening a Pull Request with your changes. All PRs should target `main`, include tests to verify your change change, and pass the GitHub Action workflows.
+You may contribute by opening a Pull Request with your changes. All PRs should target `main`, include tests to verify your change, and pass the GitHub Action workflows.
