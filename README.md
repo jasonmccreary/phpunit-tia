@@ -1,8 +1,8 @@
 # PHPUnit TIA
-This is a port of Pest's new [TIA Engine](https://pestphp.com/docs/tia). Test Impact Analysis (TIA) greatly improves test suite performance by only running tests which relate to impacted (changed) files. This plugin brings the same performance improvements to PHPUnit.
+This is a port of Pest's new [TIA Engine](https://pestphp.com/docs/tia). Test Impact Analysis (TIA) greatly improves test suite performance by only running tests which relate to impacted (changed) files. This extension brings the same performance improvements to PHPUnit.
 
 ## Installation
-This plugin requires PHPUnit 13 and PHP 8.4, as well as a code coverage driver ([pcov](https://github.com/krakjoe/pcov) or [Xdebug](https://xdebug.org/) in `coverage` mode) to record new coverage. If you are not running PHPUnit 13, you may use [Shift to automate the upgrade](https://laravelshift.com/upgrade-phpunit-13).
+This extension requires PHPUnit 13 and PHP 8.4, as well as a code coverage driver ([pcov](https://github.com/krakjoe/pcov) or [Xdebug](https://xdebug.org/) in `coverage` mode) to record new coverage. If you are not running PHPUnit 13, you may use [Shift to automate the upgrade](https://laravelshift.com/upgrade-phpunit-13).
 
 ```
 composer require --dev jasonmccreary/phpunit-tia
@@ -31,7 +31,7 @@ abstract class TestCase extends \PHPUnit\Framework\TestCase
 }
 ```
 
-This will activate TIA for every `phpunit` invocation. Since third-party plugins can not change the PHPUnit test runner, TIA marks unimpacted tests as _skipped_ (`S`) to achieve faster replay speeds.
+This will activate TIA for every `phpunit` invocation. Since third-party extensions can not change the PHPUnit test runner, TIA marks unimpacted tests as _skipped_ (`S`) to achieve faster replay speeds.
 
 **Note:** if your `TestCase` already declares `setUp()`, you will need to
 alias and call the trait's `setUp` explicitly:
