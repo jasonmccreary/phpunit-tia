@@ -259,6 +259,89 @@ final class GraphTest extends TestCase
         $this->assertNull($graph->getResult('main', 'Tests\\FooTest::old_method'));
     }
 
+    /**
+     * The regression this guards against is TIA defeating itself.
+     *
+     * PHPUnit emits `Test\Prepared` *after* `setUp()` (`TestCase::runBare()`),
+     * and `setUp()` is the only hook `RunWithTia` can skip from — so a test
+     * skipped by TIA never reports a result and is absent from
+     * `$keepTestIds`. Its file still counts as touched, because the siblings
+     * TIA did *not* skip ran normally. Treating "touched file + unseen ID" as
+     * "the method was removed" therefore deleted the cached pass of a live
+     * test, and the next run had to execute it again — which recorded a pass,
+     * which got skipped, which got pruned. A suite with zero changes
+     * oscillated between mostly-skipped and mostly-re-run forever.
+     */
+    #[Test]
+    public function prune_stale_results_keeps_a_still_defined_test_that_reported_nothing_this_run(): void
+    {
+        $this->repo->write('tests/GraphTest.php', "<?php\n");
+
+        $graph = $this->graph();
+        $skippedByTia = self::class.'::prune_stale_results_keeps_a_still_defined_test_that_reported_nothing_this_run';
+        $graph->setResult('main', $skippedByTia, 0, '', 0.0, 3, file: 'tests/GraphTest.php');
+
+        // Only a sibling reported this run; the ID above is still a real
+        // method on a real class, so its result must survive.
+        $graph->pruneStaleResults('main', ['tests/GraphTest.php'], [self::class.'::a_sibling_that_ran']);
+
+        $this->assertNotNull($graph->getResult('main', $skippedByTia));
+        $this->assertSame(3, $graph->getAssertions('main', $skippedByTia));
+    }
+
+    /**
+     * Same guarantee for data-provided tests, whose IDs carry a
+     * `#<dataSetName>` suffix that is not part of the method name.
+     */
+    #[Test]
+    public function prune_stale_results_keeps_a_still_defined_data_provided_test(): void
+    {
+        $this->repo->write('tests/GraphTest.php', "<?php\n");
+
+        $graph = $this->graph();
+        $id = self::class.'::prune_stale_results_keeps_a_still_defined_data_provided_test#Spanish';
+        $graph->setResult('main', $id, 0, '', 0.0, 1, file: 'tests/GraphTest.php');
+
+        $graph->pruneStaleResults('main', ['tests/GraphTest.php'], [self::class.'::a_sibling_that_ran']);
+
+        $this->assertNotNull($graph->getResult('main', $id));
+    }
+
+    /**
+     * The original intent still holds: a method that really is gone from a
+     * class that still exists must be dropped.
+     */
+    #[Test]
+    public function prune_stale_results_drops_a_removed_method_of_an_existing_class(): void
+    {
+        $this->repo->write('tests/GraphTest.php', "<?php\n");
+
+        $graph = $this->graph();
+        $id = self::class.'::a_method_that_was_renamed_away';
+        $graph->setResult('main', $id, 0, '', 0.0, file: 'tests/GraphTest.php');
+
+        $graph->pruneStaleResults('main', ['tests/GraphTest.php'], [self::class.'::a_sibling_that_ran']);
+
+        $this->assertNull($graph->getResult('main', $id));
+    }
+
+    /**
+     * A malformed ID carries no class to verify against, so it is treated as
+     * gone rather than kept forever.
+     */
+    #[Test]
+    public function prune_stale_results_drops_an_unparseable_test_id(): void
+    {
+        $this->repo->write('tests/GraphTest.php', "<?php\n");
+
+        $graph = $this->graph();
+        $graph->setResult('main', 'not-a-test-id', 0, '', 0.0, file: 'tests/GraphTest.php');
+
+        $graph->pruneStaleResults('main', ['tests/GraphTest.php'], [self::class.'::a_sibling_that_ran']);
+
+        $this->assertNull($graph->getResult('main', 'not-a-test-id'));
+    }
+
     #[Test]
     public function encode_and_decode_round_trip(): void
     {

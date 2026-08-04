@@ -610,8 +610,28 @@ final class Graph
 
     /**
      * Prune baseline result entries whose test files were just executed but
-     * whose test IDs are no longer present (e.g. the test method was
+     * whose test IDs no longer exist in the codebase (e.g. the test method was
      * removed or renamed).
+     *
+     * "No longer exists" is verified by reflection rather than inferred from
+     * `$keepTestIds`. Absence from that list means "did not report a result
+     * this run", which is emphatically not the same thing as "was deleted"
+     * once the run is partial — and TIA's entire purpose is to make runs
+     * partial:
+     *
+     *  - A test skipped by {@see Traits\RunWithTia} never reports at all.
+     *    PHPUnit emits `Test\Prepared` *after* `setUp()`
+     *    (`TestCase::runBare()`), and `setUp()` is the only hook the trait can
+     *    skip from, so `ResultCollector` never sees the test. Its file is
+     *    still "touched" by whichever siblings did run.
+     *  - A `--filter`ed run reports only the selected methods, while their
+     *    file counts as touched.
+     *
+     * In both cases the old heuristic deleted the cached pass of a live test,
+     * so the next run had to execute it again — which recorded a pass, which
+     * got skipped, which got pruned. Left a suite with zero changes
+     * oscillating between mostly-skipped and mostly-re-run on alternate runs,
+     * and made the inner `--filter` loop quietly destructive.
      *
      * @param  array<int, string>  $touchedFiles  Absolute or project-relative paths.
      * @param  array<int, string>  $keepTestIds  Test IDs that produced a result this run.
@@ -645,8 +665,49 @@ final class Graph
                 continue;
             }
 
+            if (self::testIsStillDefined($testId)) {
+                continue;
+            }
+
             unset($this->baselines[$branch]['results'][$testId]);
         }
+    }
+
+    /**
+     * Is `$testId` still a real method on a real class?
+     *
+     * IDs look like `Fully\Qualified\ClassName::methodName`, with a
+     * `#<dataSetName>` suffix for data-provided tests (`TestMethod::id()`).
+     * A class name cannot contain `::` and a method name cannot contain `#`,
+     * so the first occurrence of each is the correct split point even when a
+     * data-set name contains either character.
+     *
+     * An ID we cannot parse, or whose class cannot be resolved, is reported as
+     * gone — that is the pre-existing behaviour for a deleted test file, and
+     * keeping unresolvable entries forever would grow the baseline without
+     * bound.
+     */
+    private static function testIsStillDefined(string $testId): bool
+    {
+        $separator = strpos($testId, '::');
+
+        if ($separator === false) {
+            return false;
+        }
+
+        $class = substr($testId, 0, $separator);
+        $method = substr($testId, $separator + 2);
+        $dataSet = strpos($method, '#');
+
+        if ($dataSet !== false) {
+            $method = substr($method, 0, $dataSet);
+        }
+
+        if (! class_exists($class)) {
+            return false;
+        }
+
+        return method_exists($class, $method);
     }
 
     public static function decode(string $json, string $projectRoot): ?self
