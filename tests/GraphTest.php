@@ -8,8 +8,13 @@ use JMac\Testing\PhpUnit\Tia\Contracts\Resolver;
 use JMac\Testing\PhpUnit\Tia\Graph;
 use JMac\Testing\PhpUnit\Tia\TestPaths;
 use JMac\Testing\PhpUnit\Tia\Tests\Support\TempGitRepository;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestStatus\TestStatus;
+use PHPUnit\TextUI\CliArguments\Builder as CliBuilder;
+use PHPUnit\TextUI\Configuration\Registry;
+use PHPUnit\TextUI\XmlConfiguration\DefaultConfiguration;
+use ReflectionProperty;
 
 final class GraphTest extends TestCase
 {
@@ -378,5 +383,363 @@ final class GraphTest extends TestCase
     public function decode_returns_null_for_invalid_json(): void
     {
         $this->assertNull(Graph::decode('not json', $this->repo->path()));
+    }
+
+    /**
+     * `relative()` is the gate every path crosses before it can become an
+     * edge, an edge key, or a result's file, so each of its rejections decides
+     * whether a whole class of path silently drops out of the graph. Driven
+     * through `link()`, which returns early when either side is unresolvable.
+     *
+     * @param  string  $path  A path `relative()` must refuse
+     */
+    #[Test]
+    #[DataProvider('unresolvablePaths')]
+    public function link_ignores_paths_relative_cannot_resolve(string $path): void
+    {
+        $this->repo->write('tests/FooTest.php', "<?php\n");
+
+        $graph = $this->graph();
+        $graph->link('tests/FooTest.php', $path);
+
+        $this->assertSame([], $graph->allSourceFiles());
+    }
+
+    /** @return array<string, array{string}> */
+    public static function unresolvablePaths(): array
+    {
+        return [
+            'empty' => [''],
+            // PHPUnit reports code with no file of its own as "unknown".
+            'unknown' => ['unknown'],
+            // eval()'d code carries a synthetic path no diff can ever match.
+            "eval()'d code" => ["/some/file.php(12) : eval()'d code"],
+            // A dependency's own source is not this project's unit of work.
+            'inside vendor' => ['vendor/acme/pkg/src/Thing.php'],
+            'absolute outside the project root' => [DIRECTORY_SEPARATOR.'etc'.DIRECTORY_SEPARATOR.'hosts'],
+        ];
+    }
+
+    /**
+     * A `./`-prefixed path is the same file as its bare form, so both must
+     * collapse to one entry rather than two.
+     */
+    #[Test]
+    public function link_strips_leading_dot_slash_segments(): void
+    {
+        $this->repo->write('src/Foo.php', "<?php\n");
+        $this->repo->write('tests/FooTest.php', "<?php\n");
+
+        $graph = $this->graph();
+        $graph->link('tests/FooTest.php', './src/Foo.php');
+        $graph->link('tests/FooTest.php', 'src/Foo.php');
+
+        $this->assertSame(['src/Foo.php'], $graph->allSourceFiles());
+    }
+
+    #[Test]
+    public function mark_known_test_files_ignores_an_unresolvable_path(): void
+    {
+        $graph = $this->graph();
+        $graph->markKnownTestFiles(['', 'vendor/acme/pkg/tests/ThingTest.php']);
+
+        $this->assertSame([], $graph->allTestFiles());
+    }
+
+    #[Test]
+    public function replace_edges_ignores_an_unresolvable_test_file(): void
+    {
+        $this->repo->write('src/Foo.php', "<?php\n");
+
+        $graph = $this->graph();
+        $graph->replaceEdges(['' => ['src/Foo.php']]);
+
+        $this->assertSame([], $graph->allTestFiles());
+    }
+
+    /**
+     * The name is the contract: the incoming set replaces that test file's
+     * edges rather than adding to them, and duplicates within one payload
+     * collapse.
+     */
+    #[Test]
+    public function replace_edges_overwrites_the_previous_edge_set_for_a_test_file(): void
+    {
+        // Separate directories on purpose: the sibling-directory fallback
+        // would otherwise bridge the dropped edge and mask the overwrite.
+        $this->repo->write('src/Foo.php', "<?php\n");
+        $this->repo->write('lib/Bar.php', "<?php\n");
+        $this->repo->write('tests/FooTest.php', "<?php\n");
+
+        $graph = $this->graph();
+        $graph->link('tests/FooTest.php', 'src/Foo.php');
+
+        $graph->replaceEdges(['tests/FooTest.php' => ['lib/Bar.php', 'lib/Bar.php']]);
+
+        $this->assertSame(['tests/FooTest.php'], $graph->allTestFiles());
+        $this->assertSame(['tests/FooTest.php'], $graph->affected(['lib/Bar.php']));
+        $this->assertSame([], $graph->affected(['src/Foo.php']));
+    }
+
+    /**
+     * A changed test file is marked affected by the test-file rule before the
+     * edge sweep runs, so the sweep must leave it alone instead of doing the
+     * work twice.
+     */
+    #[Test]
+    public function affected_does_not_revisit_a_test_file_already_marked(): void
+    {
+        $this->repo->write('src/Foo.php', "<?php\n");
+        $this->repo->write('tests/FooTest.php', "<?php\n");
+
+        $graph = $this->graph();
+        $graph->link('tests/FooTest.php', 'src/Foo.php');
+
+        $this->assertSame(
+            ['tests/FooTest.php'],
+            $graph->affected(['tests/FooTest.php', 'src/Foo.php']),
+        );
+    }
+
+    /**
+     * A test file listed twice in one diff must be marked once.
+     */
+    #[Test]
+    public function affected_deduplicates_a_repeated_test_file(): void
+    {
+        $this->repo->write('tests/FooTest.php', "<?php\n");
+
+        $graph = $this->graph();
+
+        $this->assertSame(
+            ['tests/FooTest.php'],
+            $graph->affected(['tests/FooTest.php', 'tests/FooTest.php']),
+        );
+    }
+
+    /**
+     * A deleted test file is not a unit of work — there is nothing left to
+     * run — so it must not be reported as affected.
+     */
+    #[Test]
+    public function affected_ignores_a_test_file_that_no_longer_exists_on_disk(): void
+    {
+        $graph = $this->graph();
+
+        $this->assertSame([], $graph->affected(['tests/DeletedTest.php']));
+    }
+
+    /**
+     * A decoded graph can carry an edge pointing at a file id the `files` map
+     * no longer holds (an older writer, a hand-edited graph). The sibling
+     * fallback must step over it rather than resolve a null path.
+     */
+    #[Test]
+    public function affected_skips_an_edge_whose_file_id_is_dangling(): void
+    {
+        $this->repo->write('app/Listeners/Known.php', "<?php\n");
+        $this->repo->write('app/Listeners/Fresh.php', "<?php\n");
+        $this->repo->write('tests/FooTest.php', "<?php\n");
+
+        $seed = $this->graph();
+        $seed->link('tests/FooTest.php', 'app/Listeners/Known.php');
+
+        $payload = json_decode((string) $seed->encode(), true);
+        // Point the edge at an id that is absent from the files map.
+        $payload['edges']['tests/FooTest.php'] = [9999];
+        $payload['files'] = [];
+
+        $graph = Graph::decode((string) json_encode($payload), $this->repo->path());
+        $this->assertNotNull($graph);
+        $graph->setTestPaths(new TestPaths(directories: ['tests'], files: [], suffixes: ['Test.php']));
+
+        // Fresh.php has no edge, so the sibling-directory fallback runs and
+        // walks the dangling id.
+        $this->assertSame([], $graph->affected(['app/Listeners/Fresh.php']));
+    }
+
+    /**
+     * Each non-failure status consults the run's configuration to decide
+     * whether replaying it is honest. The flags themselves come from the CLI /
+     * XML config, so this pins the dispatch, not the verdict.
+     *
+     * @param  TestStatus  $status  The status whose policy branch must be reached
+     */
+    #[Test]
+    #[DataProvider('policyStatuses')]
+    public function should_rerun_status_consults_the_configuration_for_each_status(TestStatus $status): void
+    {
+        $graph = $this->graph();
+
+        $this->assertIsBool($graph->shouldRerunStatus($status));
+    }
+
+    /** @return array<string, array{TestStatus}> */
+    public static function policyStatuses(): array
+    {
+        return [
+            'risky' => [TestStatus::risky('')],
+            'warning' => [TestStatus::warning('')],
+            'notice' => [TestStatus::notice('')],
+            'deprecation' => [TestStatus::deprecation('')],
+            'incomplete' => [TestStatus::incomplete('')],
+            'skipped' => [TestStatus::skipped('')],
+        ];
+    }
+
+    /**
+     * Under `--fail-on-*`, replaying a cached non-success status would hide a
+     * result the run has been told to treat as red, so every one of those
+     * statuses must be re-run.
+     *
+     * The flags live on the run's `Configuration`, which is a process-wide
+     * singleton owned by PHPUnit, so this swaps it for one built from those
+     * CLI parameters and puts the original back in a `finally`.
+     *
+     * @param  TestStatus  $status  A non-success status that `--fail-on-*` covers
+     */
+    #[Test]
+    #[DataProvider('policyStatuses')]
+    public function should_rerun_status_reruns_every_status_the_run_fails_on(TestStatus $status): void
+    {
+        $graph = $this->graph();
+
+        $registry = new ReflectionProperty(Registry::class, 'instance');
+        $original = $registry->getValue();
+
+        try {
+            Registry::init(
+                (new CliBuilder)->fromParameters([
+                    '--fail-on-risky',
+                    '--fail-on-warning',
+                    '--fail-on-notice',
+                    '--fail-on-deprecation',
+                    '--fail-on-incomplete',
+                    '--fail-on-skipped',
+                ]),
+                DefaultConfiguration::create(),
+            );
+
+            $this->assertTrue($graph->shouldRerunStatus($status));
+        } finally {
+            $registry->setValue(null, $original);
+        }
+    }
+
+    /**
+     * An absolute path that does not exist cannot be realpath'd, so the raw
+     * path is used for the inside-the-project check — and rejected.
+     */
+    #[Test]
+    public function link_ignores_an_absolute_path_that_cannot_be_resolved(): void
+    {
+        $this->repo->write('tests/FooTest.php', "<?php\n");
+
+        $graph = $this->graph();
+        $graph->link(
+            'tests/FooTest.php',
+            DIRECTORY_SEPARATOR.'no'.DIRECTORY_SEPARATOR.'such'.DIRECTORY_SEPARATOR.'file.php',
+        );
+
+        $this->assertSame([], $graph->allSourceFiles());
+    }
+
+    /**
+     * Every stored status integer must map back to the matching TestStatus.
+     * The write side persists `TestStatus::asInt()`, so a wrong arm here
+     * replays a test as the wrong outcome — and `cachedStatusIfUnaffected()`
+     * decides whether to skip purely on `isSuccess()`.
+     *
+     * @param  int  $stored  The integer persisted in the baseline
+     * @param  string  $predicate  The TestStatus predicate that must hold on the way back
+     */
+    #[Test]
+    #[DataProvider('storedStatuses')]
+    public function get_result_maps_every_stored_status_back(int $stored, string $predicate): void
+    {
+        $this->repo->write('tests/FooTest.php', "<?php\n");
+
+        $graph = $this->graph();
+        $graph->setResult('main', 'Tests\\FooTest::it_works', $stored, 'stored message', 0.0, 0, 'tests/FooTest.php');
+
+        $status = $graph->getResult('main', 'Tests\\FooTest::it_works');
+
+        $this->assertNotNull($status);
+        $this->assertTrue($status->{$predicate}(), "Stored status {$stored} should satisfy {$predicate}()");
+    }
+
+    /** @return array<string, array{int, string}> */
+    public static function storedStatuses(): array
+    {
+        return [
+            'success' => [0, 'isSuccess'],
+            'skipped' => [1, 'isSkipped'],
+            'incomplete' => [2, 'isIncomplete'],
+            'notice' => [3, 'isNotice'],
+            'deprecation' => [4, 'isDeprecation'],
+            'risky' => [5, 'isRisky'],
+            'warning' => [6, 'isWarning'],
+            'failure' => [7, 'isFailure'],
+            'error' => [8, 'isError'],
+            'unrecognised' => [99, 'isUnknown'],
+        ];
+    }
+
+    #[Test]
+    public function prune_stale_results_is_a_no_op_without_a_baseline_for_the_branch(): void
+    {
+        $graph = $this->graph();
+
+        $graph->pruneStaleResults('a-branch-never-recorded', ['tests/FooTest.php'], []);
+
+        $this->assertNull($graph->getResult('a-branch-never-recorded', 'Tests\\FooTest::it_works'));
+    }
+
+    /**
+     * No resolvable touched file means nothing can be judged stale, so the
+     * baseline must be left alone rather than emptied.
+     */
+    #[Test]
+    public function prune_stale_results_is_a_no_op_when_no_touched_file_resolves(): void
+    {
+        $this->repo->write('tests/FooTest.php', "<?php\n");
+
+        $graph = $this->graph();
+        $graph->setResult('main', 'Tests\\FooTest::gone', 0, '', 0.0, 0, 'tests/FooTest.php');
+
+        $graph->pruneStaleResults('main', ['vendor/acme/pkg/tests/ThingTest.php'], []);
+
+        $this->assertNotNull($graph->getResult('main', 'Tests\\FooTest::gone'));
+    }
+
+    /**
+     * A must-rerun result with no usable file contributes nothing to the
+     * rerun list, and a passing one is filtered out before the file is even
+     * looked at.
+     */
+    #[Test]
+    public function test_files_to_rerun_skips_results_with_no_usable_file(): void
+    {
+        $this->repo->write('tests/FooTest.php', "<?php\n");
+
+        $graph = $this->graph();
+        // Failure (7) → must re-run, but there is no file to attribute it to.
+        $graph->setResult('main', 'Tests\\FooTest::no_file', 7, 'boom', 0.0);
+        $graph->setResult('main', 'Tests\\FooTest::empty_file', 7, 'boom', 0.0, 0, '');
+        // Success → nothing to re-run; exercises the status filter.
+        $graph->setResult('main', 'Tests\\FooTest::passed', 0, '', 0.0, 0, 'tests/FooTest.php');
+
+        $this->assertSame([], $graph->testFilesToRerun('main'));
+    }
+
+    #[Test]
+    public function has_unlocated_tests_to_rerun_ignores_a_passing_result(): void
+    {
+        $this->repo->write('tests/FooTest.php', "<?php\n");
+
+        $graph = $this->graph();
+        $graph->setResult('main', 'Tests\\FooTest::passed', 0, '', 0.0, 0, 'tests/FooTest.php');
+
+        $this->assertFalse($graph->hasUnlocatedTestsToRerun('main'));
     }
 }
