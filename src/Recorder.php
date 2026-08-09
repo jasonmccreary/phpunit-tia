@@ -23,21 +23,34 @@ namespace JMac\Testing\PhpUnit\Tia;
 final class Recorder
 {
     /**
-     * @param  array<string, array<int, list<string>|null>>  $lineCoverage
+     * @param  array<string, array<int, array<int, int>|list<string>|null>>  $lineCoverage
      * @param  array<string, array{status: int, message: string, time: float, assertions: int, file?: string}>  $results
+     * @param  array<int, string>  $testIdByIndex  php-code-coverage >= 14.3 keys each covered line's
+     *         hit map by an integer TestIndex (`<TestIndex => hitFlag>`); this translates that index
+     *         back to the test id string. Pass the empty default for the legacy
+     *         `<line => list<testIdString>>` shape, where the id is the value itself.
      * @return array<string, list<string>> test file (absolute) → list of source files (absolute)
      */
-    public static function invert(array $lineCoverage, array $results): array
+    public static function invert(array $lineCoverage, array $results, array $testIdByIndex = []): array
     {
         $edges = [];
 
         foreach ($lineCoverage as $sourceFile => $lines) {
-            foreach ($lines as $testIds) {
-                if ($testIds === null) {
+            foreach ($lines as $perLine) {
+                if ($perLine === null) {
                     continue;
                 }
 
-                foreach ($testIds as $testId) {
+                foreach ($perLine as $key => $value) {
+                    // Legacy php-code-coverage: `<line => list<testIdString>>` — the id is the value.
+                    // php-code-coverage >= 14.3: `<line => <TestIndex => hitFlag>>` — the id is keyed
+                    // by index, and the value is a hit flag, so translate the key via $testIdByIndex.
+                    $testId = is_string($value) ? $value : ($testIdByIndex[$key] ?? null);
+
+                    if ($testId === null) {
+                        continue;
+                    }
+
                     $testFile = $results[$testId]['file'] ?? null;
 
                     if ($testFile === null) {

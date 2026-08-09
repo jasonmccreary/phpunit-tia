@@ -46,9 +46,13 @@ final readonly class WriteGraph implements ExecutionFinishedSubscriber
         $results = $this->results->all();
 
         $coverage = CodeCoverage::instance();
-        $edges = $coverage->isActive()
-            ? Recorder::invert($coverage->codeCoverage()->getData()->lineCoverage(), $results)
-            : [];
+        $edges = [];
+
+        if ($coverage->isActive()) {
+            $data = $coverage->codeCoverage()->getData();
+            $edges = Recorder::invert($data->lineCoverage(), $results, $data->testIds());
+        }
+
         $graph->replaceEdges($edges);
 
         $executedTestFiles = [];

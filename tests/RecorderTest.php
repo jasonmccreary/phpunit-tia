@@ -94,4 +94,46 @@ final class RecorderTest extends TestCase
         $this->assertSame(['/app/src/Calculator.php'], $edges['/app/tests/CalculatorTest.php']);
         $this->assertSame(['/app/src/Calculator.php'], $edges['/app/tests/SubtractionTest.php']);
     }
+
+    #[Test]
+    public function it_inverts_index_keyed_line_coverage_from_php_code_coverage_14_3(): void
+    {
+        // php-code-coverage >= 14.3 interns test ids: each covered line maps
+        // <TestIndex => hitFlag> instead of a list of test-id strings, and the
+        // index resolves to a test id via ProcessedCodeCoverageData::testIds().
+        $lineCoverage = [
+            '/app/src/Calculator.php' => [
+                11 => [0 => 1],
+                16 => [1 => 1],
+            ],
+        ];
+
+        $testIdByIndex = [
+            0 => 'Tests\\CalculatorTest::test_it_adds',
+            1 => 'Tests\\CalculatorTest::test_it_subtracts',
+        ];
+
+        $results = [
+            'Tests\\CalculatorTest::test_it_adds' => ['status' => 0, 'message' => '', 'time' => 0.0, 'assertions' => 1, 'file' => '/app/tests/CalculatorTest.php'],
+            'Tests\\CalculatorTest::test_it_subtracts' => ['status' => 0, 'message' => '', 'time' => 0.0, 'assertions' => 1, 'file' => '/app/tests/CalculatorTest.php'],
+        ];
+
+        $edges = Recorder::invert($lineCoverage, $results, $testIdByIndex);
+
+        $this->assertSame(['/app/tests/CalculatorTest.php' => ['/app/src/Calculator.php']], $edges);
+    }
+
+    #[Test]
+    public function it_skips_an_index_keyed_hit_with_no_known_test_index(): void
+    {
+        // The hit flag value (1) must never be mistaken for a test id, and an
+        // index absent from the map is skipped rather than producing a false edge.
+        $lineCoverage = [
+            '/app/src/Calculator.php' => [
+                11 => [7 => 1],
+            ],
+        ];
+
+        $this->assertSame([], Recorder::invert($lineCoverage, [], []));
+    }
 }
