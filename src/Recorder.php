@@ -26,9 +26,9 @@ final class Recorder
      * @param  array<string, array<int, array<int, int>|list<string>|null>>  $lineCoverage
      * @param  array<string, array{status: int, message: string, time: float, assertions: int, file?: string}>  $results
      * @param  array<int, string>  $testIdByIndex  php-code-coverage >= 14.3 keys each covered line's
-     *         hit map by an integer TestIndex (`<TestIndex => hitFlag>`); this translates that index
-     *         back to the test id string. Pass the empty default for the legacy
-     *         `<line => list<testIdString>>` shape, where the id is the value itself.
+     *                                             hit map by an integer TestIndex (`<TestIndex => hitFlag>`); this translates that index
+     *                                             back to the test id string. Pass the empty default for the legacy
+     *                                             `<line => list<testIdString>>` shape, where the id is the value itself.
      * @return array<string, list<string>> test file (absolute) → list of source files (absolute)
      */
     public static function invert(array $lineCoverage, array $results, array $testIdByIndex = []): array
