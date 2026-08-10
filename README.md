@@ -1,3 +1,10 @@
+<p align="right">
+    <a href="https://github.com/jasonmccreary/phpunit-tia/actions/workflows/tests.yml"><img src="https://github.com/jasonmccreary/phpunit-tia/workflows/tests/badge.svg" alt="Build Status"></a>
+    <a href="https://packagist.org/packages/jasonmccreary/phpunit-tia"><img src="https://poser.pugx.org/jasonmccreary/phpunit-tia/v/stable.svg" alt="Latest Stable Version"></a>
+    <a href="https://github.com/jasonmccreary/phpunit-tia/blob/main/LICENSE"><img src="https://poser.pugx.org/jasonmccreary/phpunit-tia/license.svg" alt="License"></a>
+</p>
+
+
 # PHPUnit TIA
 This is a port of Pest's new [TIA Engine](https://pestphp.com/docs/tia). Test Impact Analysis (TIA) greatly improves test suite performance by only running tests which relate to impacted (changed) files. This extension brings the same performance improvements to PHPUnit.
 
