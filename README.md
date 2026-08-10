@@ -11,6 +11,8 @@ This is a port of Pest's new [TIA Engine](https://pestphp.com/docs/tia). Test Im
 ## Installation
 This extension requires PHPUnit 13 and PHP 8.4, as well as a code coverage driver ([pcov](https://github.com/krakjoe/pcov) or [Xdebug](https://xdebug.org/) in `coverage` mode) to record new coverage. If you are not running PHPUnit 13, you may use [Shift to automate the upgrade](https://laravelshift.com/upgrade-phpunit-13).
 
+**Note:** TIA automatically tracks which files each test exercises, but for large suites, we recommend `php-code-coverage` 14.3+ for lower memory use during coverage collection.
+
 ```
 composer require --dev jasonmccreary/phpunit-tia
 ```
