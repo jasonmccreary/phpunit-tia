@@ -257,11 +257,14 @@ final class Graph
             $unknown[] = $rel;
         }
 
+        // No `isset($affectedSet[$testFile])` short-circuit here, unlike the
+        // passes that follow: this is the first thing `affected()` calls, so
+        // the set is always empty on entry, and the only writer below is
+        // followed by `break` on a key that is unique by definition. The guard
+        // that used to sit here could never evaluate true. If the call order
+        // ever changes so the set arrives populated, the worst case is
+        // re-setting a key that is already `true`.
         foreach ($this->edges as $testFile => $ids) {
-            if (isset($affectedSet[$testFile])) {
-                continue;
-            }
-
             foreach ($ids as $id) {
                 if (isset($changedIds[$id])) {
                     $affectedSet[$testFile] = true;
