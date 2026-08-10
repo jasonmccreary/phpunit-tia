@@ -123,3 +123,65 @@ normally, just without TIA active for that run. Verified end-to-end in
 `fixture-app/`: with no driver, tests execute and pass; forcing past this
 check to isolate bug 1 reproduces the clean warning-event path with no
 crash, confirming the two fixes are independent and both necessary.
+
+---
+
+## Why staleness is verified by reflection, not inferred from "did not report"
+
+`WriteGraph::notify()` passes `$keepTestIds` — the IDs that produced a result
+this run — to `Graph::pruneStaleResults()`, which used to delete any baseline
+entry whose file was executed but whose ID was absent from that list. The
+inference is "the method must have been removed or renamed".
+
+That inference only holds for a **full** run of the file, and TIA's entire
+purpose is to make runs partial:
+
+- A test skipped by `RunWithTia` reports nothing at all. PHPUnit emits
+  `Test\Prepared` **after** `setUp()` — in `TestCase::runBare()` the order is
+  `HookMethodInvoker::invokeBeforeTest()` (which runs `setUp()`), then
+  `invokePreCondition()`, then `$emitter->testPrepared(...)`. Since `setUp()`
+  is the only hook the trait can skip from (see the first section of this
+  file), `markTestSkipped()` unwinds before `Prepared` fires,
+  `RecordTestPrepared` never runs, and `ResultCollector::record()` returns
+  early on its null-`$currentTestId` guard. The test's file is still
+  "touched", because the siblings TIA did *not* skip ran normally.
+- A `--filter`ed run reports only the selected methods, while their file
+  likewise counts as touched.
+
+So the heuristic deleted the cached pass of a live test. The consequence was
+self-defeating: TIA's evidence for skipping a test is its recorded pass, and
+its own skip destroyed that evidence. Next run the test had no cached
+success, so it executed for real and recorded a pass; the run after that
+skipped it and pruned it again.
+
+Measured on a 5,768-test Laravel suite with **zero** changes between runs, the
+graph oscillated on a deterministic two-cycle:
+
+| run | duration | skipped | graph.json |
+|-----|----------|---------|------------|
+| A   | 0:17     | 5,604   | 928K       |
+| B   | 2:16     | 3,555   | 1.5M       |
+| C   | 0:17     | 5,604   | 928K       |
+
+A **fully** skipped file pruned nothing (`$touched === []` returns early),
+which is why the suite oscillated rather than degrading monotonically.
+
+**Fix**: `pruneStaleResults()` now confirms absence directly —
+`Graph::testIsStillDefined()` splits the ID (`Class::method`, plus an optional
+`#<dataSetName>` suffix; a class name cannot contain `::` and a method name
+cannot contain `#`, so the first occurrence of each is the correct split
+point) and checks `class_exists()` + `method_exists()`. An unparseable ID, or
+one whose class no longer resolves, is still treated as gone — that is the
+pre-existing behaviour for a deleted test file, and keeping unresolvable
+entries forever would grow the baseline without bound.
+
+This also removes a misleading symptom: a partial run immediately followed by
+a second runner (e.g. paratest) would leave that runner almost nothing to
+replay, which reads as "TIA doesn't work with my runner" rather than as a
+pruning bug.
+
+Regression coverage lives at both levels — `GraphTest` for the unit
+behaviour (kept, kept-with-data-set, dropped-removed-method,
+dropped-unparseable-ID) and `WriteGraphTest` for the write path that produces
+the partial-run condition in the first place. All four `testIsStillDefined()`
+branches are exercised.
