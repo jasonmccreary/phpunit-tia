@@ -228,6 +228,40 @@ final class TiaTest extends TestCase
     }
 
     /**
+     * The selection wrapper has to tell "active, but nothing is affected"
+     * apart from "could not narrow at all" — the first means run nothing, the
+     * second means run everything. Both look like an empty affected set.
+     */
+    #[Test]
+    public function it_is_not_active_without_a_recorded_graph(): void
+    {
+        Tia::configure($this->repo->path(), 'local');
+
+        $this->assertFalse(Tia::instance()->isActive());
+    }
+
+    #[Test]
+    public function it_is_active_once_a_graph_is_recorded(): void
+    {
+        $this->recordPassingTest();
+
+        Tia::configure($this->repo->path(), 'local');
+
+        $this->assertTrue(Tia::instance()->isActive());
+    }
+
+    #[Test]
+    public function it_exposes_the_affected_test_files(): void
+    {
+        $this->recordPassingTest();
+        $this->repo->write('src/Foo.php', "<?php\n\nclass Foo\n{\n    public function added(): void {}\n}\n");
+
+        Tia::configure($this->repo->path(), 'local');
+
+        $this->assertSame(['tests/FooTest.php'], Tia::instance()->affectedTestFiles());
+    }
+
+    /**
      * @return array{0: string, 1: string, 2: string} [className, methodName, sha]
      */
     private function recordPassingTest(?string $sha = null, ?array $fingerprint = null): array

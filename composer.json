@@ -28,6 +28,9 @@
     "conflict": {
         "phpunit/phpunit": "<13.2.6"
     },
+    "bin": [
+        "bin/phpunit-tia"
+    ],
     "autoload": {
         "psr-4": {
             "JMac\\Testing\\PhpUnit\\Tia\\": "src/"

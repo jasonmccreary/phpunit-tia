@@ -86,6 +86,63 @@ final class Tia
     }
 
     /**
+     * Whether the impact analysis actually ran: a graph was decoded, its
+     * fingerprint still matches, and the baseline sha was reachable from HEAD.
+     *
+     * Callers that *select* which tests to run need this to read an empty
+     * affectedTestFiles() correctly — inactive means "could not narrow, run
+     * everything", not "nothing is affected".
+     */
+    public function isActive(): bool
+    {
+        return $this->active;
+    }
+
+    /**
+     * The project-relative test files impacted by this run's changes.
+     *
+     * Only meaningful when isActive() is true.
+     *
+     * @return list<string>
+     */
+    public function affectedTestFiles(): array
+    {
+        return array_keys($this->affectedTestFiles);
+    }
+
+    /**
+     * Test files holding a result the policy says must run again — a failure,
+     * or anything --fail-on-* elevates. They sit in unchanged files, so the
+     * affected set alone would miss them.
+     *
+     * @return list<string>
+     */
+    public function testFilesToRerun(): array
+    {
+        return $this->graph?->testFilesToRerun($this->branch) ?? [];
+    }
+
+    /**
+     * Whether some result that must re-run has no file to name it by, which
+     * makes a path-based selection unable to express the run.
+     */
+    public function hasUnlocatedTestsToRerun(): bool
+    {
+        return $this->graph?->hasUnlocatedTestsToRerun($this->branch) ?? false;
+    }
+
+    /**
+     * Every test file the graph has recorded. Its complement against the
+     * configured suite is what has never been seen, and must always run.
+     *
+     * @return list<string>
+     */
+    public function knownTestFiles(): array
+    {
+        return $this->graph?->allTestFiles() ?? [];
+    }
+
+    /**
      * Only ever returns a cached **success** status — §4.7's deliberate
      * simplification vs. Pest's four-way ReplayType. A cached failure/error
      * needs a fresh stack trace, not a stale message, and risky/incomplete

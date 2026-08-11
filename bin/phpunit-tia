@@ -1,0 +1,25 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use JMac\Testing\PhpUnit\Tia\Cli\Command;
+
+foreach ([__DIR__.'/../../../autoload.php', __DIR__.'/../vendor/autoload.php'] as $autoload) {
+    if (is_file($autoload)) {
+        require $autoload;
+
+        break;
+    }
+}
+
+if (! class_exists(Command::class)) {
+    fwrite(STDERR, "phpunit-tia: could not locate the composer autoloader.\n");
+
+    exit(1);
+}
+
+$arguments = $argv;
+array_shift($arguments);
+
+exit((new Command(getcwd(), array_values($arguments)))->run());

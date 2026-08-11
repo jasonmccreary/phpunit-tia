@@ -75,6 +75,30 @@ PHPUNIT_TIA_FRESH=1 phpunit ...
 
 **Note:** running tests with the `--fail-on-skipped` or `--display-skipped` option will automatically bypass TIA's speed boost. You will need to drop these options to take full advantage of TIA.
 
+## Selecting instead of skipping
+The trait skips inside `setUp()`, so an unaffected test is still constructed before it is skipped. To avoid that cost entirely, run the suite through the wrapper binary:
+
+```sh
+vendor/bin/phpunit-tia
+```
+
+It works out which test files are impacted, then re-execs the real `phpunit` with only those files, so unaffected tests are never constructed at all. Every argument you pass is handed through untouched:
+
+```sh
+vendor/bin/phpunit-tia --stop-on-failure tests/Feature
+```
+
+A path you supply narrows the selection rather than replacing it — the example above runs the impacted tests *within* `tests/Feature`.
+
+The binary is a complement to the trait, not a replacement: keep the trait installed so the graph stays warm, and keep the extension registered so runs keep recording.
+
+**Requirements and behaviour:**
+
+- The first run has nothing to work from, so it runs the full suite. It needs `pcov` or `xdebug`, otherwise nothing is ever recorded and every later run stays full.
+- When nothing is impacted, it runs nothing and exits `0`.
+- Anything uncertain — no baseline, a fingerprint change, an unreachable baseline commit, a test file the graph has never seen — falls back to running the full suite. It will never run *fewer* tests than it can justify.
+- `PHPUNIT_TIA=0` and `PHPUNIT_TIA_FRESH=1` bypass it exactly as they bypass the trait.
+
 ## CI Workflows
 To use TIA in CI, your baseline graph must persist between runs. See our own [GitHub Action workflow](.github/workflows/tests.yml) for an example. At a high level, your workflow needs to:
 
