@@ -27,9 +27,24 @@ final readonly class SuiteFiles
 
     public static function fromProjectRoot(string $projectRoot): self
     {
+        $configuration = Registry::get();
+        $include = $configuration->includeTestSuites();
+        $excludedSuites = $configuration->excludeTestSuites();
+
         $files = [];
 
-        foreach (Registry::get()->testSuite() as $suite) {
+        foreach ($configuration->testSuite() as $suite) {
+            // --testsuite / --exclude-testsuite restrict the run to named
+            // suites. Ignoring them would select files the user excluded, and
+            // pull in every never-recorded file from those suites.
+            if ($include !== [] && ! in_array($suite->name(), $include, true)) {
+                continue;
+            }
+
+            if (in_array($suite->name(), $excludedSuites, true)) {
+                continue;
+            }
+
             $exclude = [];
 
             foreach ($suite->exclude() as $excluded) {
