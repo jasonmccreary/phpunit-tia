@@ -48,6 +48,21 @@ jobs:
       - name: Install dependencies
         run: composer install --prefer-dist --no-interaction --no-progress
 
+      - name: Cache fixture-app dependencies
+        uses: actions/cache@v6
+        with:
+          path: tests/fixture-app/vendor
+          key: composer-fixture-${{ runner.os }}-${{ hashFiles('tests/fixture-app/composer.json') }}
+          restore-keys: |
+            composer-fixture-${{ runner.os }}-
+
+      - name: Install fixture-app dependencies
+        # The wrapper binary's end-to-end tests drive tests/fixture-app as a
+        # real consumer project via a subprocess. Without its own vendor/ they
+        # skip, so CI would report green while covering none of that path.
+        working-directory: tests/fixture-app
+        run: composer install --prefer-dist --no-interaction --no-progress
+
       - name: Cache phpunit-tia graph
         uses: actions/cache@v6
         with:
