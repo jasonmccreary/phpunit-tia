@@ -82,13 +82,27 @@ The trait skips inside `setUp()`, so an unaffected test is still constructed bef
 vendor/bin/phpunit-tia
 ```
 
-It works out which test files are impacted, then re-execs the real `phpunit` with only those files, so unaffected tests are never constructed at all. Every argument you pass is handed through untouched:
+It works out which test files are impacted, then re-execs the real `phpunit` with only those files, so unaffected tests are never constructed at all.
+
+Every option you pass is handed through to `phpunit` untouched, and applies *within* the impacted set:
 
 ```sh
-vendor/bin/phpunit-tia --stop-on-failure tests/Feature
+vendor/bin/phpunit-tia --stop-on-failure
+vendor/bin/phpunit-tia --filter it_creates_a_widget
+vendor/bin/phpunit-tia --testdox --do-not-cache-result
 ```
 
-A path you supply narrows the selection rather than replacing it — the example above runs the impacted tests *within* `tests/Feature`.
+A path narrows the selection rather than replacing it, so this runs the impacted tests *within* `tests/Feature`:
+
+```sh
+vendor/bin/phpunit-tia tests/Feature
+```
+
+Both combine, and each only ever shrinks what runs:
+
+```sh
+vendor/bin/phpunit-tia --filter Widget tests/Feature
+```
 
 The binary is a complement to the trait, not a replacement: keep the trait installed so the graph stays warm, and keep the extension registered so runs keep recording.
 
@@ -97,7 +111,10 @@ The binary is a complement to the trait, not a replacement: keep the trait insta
 - The first run has nothing to work from, so it runs the full suite. It needs `pcov` or `xdebug`, otherwise nothing is ever recorded and every later run stays full.
 - When nothing is impacted, it runs nothing and exits `0`.
 - Anything uncertain — no baseline, a fingerprint change, an unreachable baseline commit, a test file the graph has never seen — falls back to running the full suite. It will never run *fewer* tests than it can justify.
-- `PHPUNIT_TIA=0` and `PHPUNIT_TIA_FRESH=1` bypass it exactly as they bypass the trait.
+- `PHPUNIT_TIA=0` and `PHPUNIT_TIA_FRESH=1` bypass it exactly as they bypass the trait, running the full suite with your arguments untouched.
+- `PHPUNIT_TIA_BINARY` points at the `phpunit` to re-exec, for projects whose Composer `bin-dir` is not `vendor/bin`. It defaults to `vendor/bin/phpunit`.
+
+Note that impact is judged behaviourally, so editing only comments or whitespace in a source file will correctly select nothing.
 
 ## CI Workflows
 To use TIA in CI, your baseline graph must persist between runs. See our own [GitHub Action workflow](.github/workflows/tests.yml) for an example. At a high level, your workflow needs to:
