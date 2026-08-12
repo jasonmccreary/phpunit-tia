@@ -123,6 +123,18 @@ final class Tia
     }
 
     /**
+     * Test files whose cached result is anything other than a success, which
+     * the trait re-executes rather than replaying. A file-level selector must
+     * match that rule to avoid pruning a test the trait would have run.
+     *
+     * @return list<string>
+     */
+    public function testFilesWithoutCachedSuccess(): array
+    {
+        return $this->graph?->testFilesWithoutCachedSuccess($this->branch) ?? [];
+    }
+
+    /**
      * Whether some result that must re-run has no file to name it by, which
      * makes a path-based selection unable to express the run.
      */

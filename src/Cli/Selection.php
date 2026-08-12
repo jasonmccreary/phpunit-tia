@@ -33,6 +33,7 @@ final readonly class Selection
         $candidates = array_unique(array_merge(
             $this->tia->affectedTestFiles(),
             $this->tia->testFilesToRerun(),
+            $this->tia->testFilesWithoutCachedSuccess(),
             array_values(array_diff($suiteFiles, $this->tia->knownTestFiles())),
         ));
 

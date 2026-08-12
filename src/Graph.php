@@ -443,6 +443,44 @@ final class Graph
     /**
      * @return array<int, string>
      */
+    /**
+     * Test files holding any result that is not a success.
+     *
+     * cachedStatusIfUnaffected() replays a cached result only when it is a
+     * success, so anything else is re-executed. A selector working at file
+     * level has to apply the same rule, or a test skipped for a missing
+     * service stays unrun indefinitely: the fingerprint tracks the PHP version
+     * and the composer/phpunit files, so making that service available does
+     * not invalidate the graph.
+     *
+     * @return list<string>
+     */
+    public function testFilesWithoutCachedSuccess(string $branch, string $fallbackBranch = 'main'): array
+    {
+        $baseline = $this->baselineFor($branch, $fallbackBranch);
+        $files = [];
+
+        foreach ($baseline['results'] as $result) {
+            if (TestStatus::from($result['status'])->isSuccess()) {
+                continue;
+            }
+
+            $file = $result['file'] ?? null;
+
+            if (! is_string($file) || $file === '') {
+                continue;
+            }
+
+            $rel = $this->relative($file);
+
+            if ($rel !== null) {
+                $files[$rel] = true;
+            }
+        }
+
+        return array_keys($files);
+    }
+
     public function testFilesToRerun(string $branch, string $fallbackBranch = 'main'): array
     {
         $baseline = $this->baselineFor($branch, $fallbackBranch);

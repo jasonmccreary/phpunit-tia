@@ -126,10 +126,29 @@ final class SelectionTest extends TestCase
     }
 
     /**
+     * The trait replays a cached result only when it is a success; anything
+     * else runs again. A selector that prunes more eagerly would leave, say, a
+     * test skipped for a missing service unrun indefinitely — the fingerprint
+     * tracks only the PHP version and composer/phpunit files, so starting that
+     * service does not invalidate the graph.
+     */
+    #[Test]
+    public function it_selects_a_file_whose_cached_result_is_not_a_success(): void
+    {
+        $this->recordGraph(TestStatus::skipped('service not available'));
+
+        Tia::configure($this->repo->path(), 'local');
+
+        $plan = (new Selection(Tia::instance()))->plan(['tests/FooTest.php'], []);
+
+        $this->assertSame(['tests/FooTest.php'], $plan->paths());
+    }
+
+    /**
      * Records a graph where tests/FooTest.php covers src/Foo.php, committed so
      * the baseline sha is reachable.
      */
-    private function recordGraph(): void
+    private function recordGraph(?TestStatus $status = null): void
     {
         $this->repo->write('src/Foo.php', "<?php\n\nclass Foo\n{\n}\n");
         $this->repo->write('tests/FooTest.php', "<?php\n\nclass FooTest\n{\n}\n");
@@ -138,7 +157,8 @@ final class SelectionTest extends TestCase
 
         $graph = new Graph($this->repo->path());
         $graph->link($this->repo->path().'/tests/FooTest.php', $this->repo->path().'/src/Foo.php');
-        $graph->setResult('main', 'FooTest::test_it_works', TestStatus::success()->asInt(), '', 0.01, 1, 'tests/FooTest.php');
+        $status ??= TestStatus::success();
+        $graph->setResult('main', 'FooTest::test_it_works', $status->asInt(), $status->message(), 0.01, 1, 'tests/FooTest.php');
         $graph->setFingerprint(Fingerprint::compute($this->repo->path()));
         $graph->setRecordedAtSha('main', $sha);
 
