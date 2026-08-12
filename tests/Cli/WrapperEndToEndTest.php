@@ -28,6 +28,9 @@ final class WrapperEndToEndTest extends TestCase
     /** @var array<string, string> */
     private array $originalSources = [];
 
+    /** @var list<string> */
+    private array $createdFiles = [];
+
     protected function setUp(): void
     {
         $this->app = dirname(__DIR__).'/fixture-app';
@@ -51,7 +54,12 @@ final class WrapperEndToEndTest extends TestCase
             file_put_contents($path, $contents);
         }
 
+        foreach ($this->createdFiles as $path) {
+            @unlink($path);
+        }
+
         $this->originalSources = [];
+        $this->createdFiles = [];
 
         if (is_dir($this->home)) {
             $this->removeDirectory($this->home);
@@ -121,6 +129,46 @@ final class WrapperEndToEndTest extends TestCase
         $this->assertStringContainsString('OK (1 test', $run->getOutput());
     }
 
+    /**
+     * The trait replays only a cached success, so a test skipped for a missing
+     * service is retried on every run and starts passing once that service is
+     * up. Selection has to agree: the fingerprint tracks the PHP version and
+     * the composer/phpunit files, so starting the service does not invalidate
+     * the graph, and a selector that pruned the file would leave the test
+     * unrun indefinitely.
+     *
+     * The test under measurement writes a marker before skipping itself, so
+     * the marker's presence proves its body actually executed rather than
+     * being replayed or never selected.
+     */
+    #[Test]
+    public function it_reselects_a_test_that_skipped_itself_last_run(): void
+    {
+        $marker = $this->app.'/tia-e2e-marker.txt';
+
+        $this->createFixtureTest('EnvSkippedTest', <<<PHP
+            public function test_it_skips_when_a_service_is_missing(): void
+            {
+                file_put_contents('{$marker}', 'ran');
+
+                \$this->markTestSkipped('service not available');
+            }
+            PHP);
+
+        $this->createdFiles[] = $marker;
+
+        $this->recordBaseline(expectedTests: 4);
+
+        $this->assertFileExists($marker, 'the baseline run should execute the test body');
+
+        unlink($marker);
+
+        $run = $this->wrapper();
+
+        $this->assertFileExists($marker, 'nothing changed, but the skipped test must be selected again');
+        $this->assertStringContainsString('test files selected', $run->getErrorOutput());
+    }
+
     #[Test]
     public function it_runs_the_whole_suite_when_disabled_by_environment(): void
     {
@@ -143,11 +191,42 @@ final class WrapperEndToEndTest extends TestCase
         );
     }
 
-    private function recordBaseline(): void
+    private function recordBaseline(int $expectedTests = 3): void
     {
         $run = $this->process([PHP_BINARY, '-d', 'pcov.enabled=1', '-d', 'pcov.directory=.', 'vendor/bin/phpunit']);
 
-        $this->assertStringContainsString('OK (3 tests', $run->getOutput(), 'baseline run should pass');
+        // PHPUnit reports "OK (N tests, …)" for a clean run but "Tests: N, …"
+        // once anything is skipped, and one case deliberately records a skip.
+        $this->assertMatchesRegularExpression(
+            "/(OK \({$expectedTests} tests|Tests: {$expectedTests}\b)/",
+            $run->getOutput(),
+            'baseline run should cover the whole fixture',
+        );
+    }
+
+    /**
+     * Writes an extra test class into the fixture for the duration of one
+     * case. Keeping it out of the committed fixture matters: a permanently
+     * skipped test would be selected on every run and would break the cases
+     * that assert nothing is affected.
+     */
+    private function createFixtureTest(string $class, string $body): void
+    {
+        $path = $this->app."/tests/{$class}.php";
+
+        file_put_contents($path, <<<PHP
+            <?php
+
+            namespace Tests;
+
+            class {$class} extends TestCase
+            {
+            {$body}
+            }
+
+            PHP);
+
+        $this->createdFiles[] = $path;
     }
 
     private function changeCalculator(): void
