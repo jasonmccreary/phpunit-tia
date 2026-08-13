@@ -11,11 +11,13 @@ use JMac\Testing\PhpUnit\Tia\Fingerprint;
 use JMac\Testing\PhpUnit\Tia\Graph;
 use JMac\Testing\PhpUnit\Tia\Recorder;
 use JMac\Testing\PhpUnit\Tia\ResultCollector;
+use JMac\Testing\PhpUnit\Tia\RunScope;
 use JMac\Testing\PhpUnit\Tia\Storage;
 use JMac\Testing\PhpUnit\Tia\Tia;
 use PHPUnit\Event\TestRunner\ExecutionFinished;
 use PHPUnit\Event\TestRunner\ExecutionFinishedSubscriber;
 use PHPUnit\Runner\CodeCoverage;
+use PHPUnit\TextUI\Configuration\Registry;
 
 /**
  * The one piece of Pest's Tia.php orchestration this milestone needs:
@@ -31,6 +33,7 @@ final readonly class WriteGraph implements ExecutionFinishedSubscriber
         private string $projectRoot,
         private ResultCollector $results,
         private string $storageMode,
+        private RunScope $scope,
     ) {}
 
     public function notify(ExecutionFinished $event): void
@@ -84,16 +87,53 @@ final readonly class WriteGraph implements ExecutionFinishedSubscriber
         $graph->pruneMissingTests();
 
         $graph->setFingerprint($currentFingerprint);
-        $graph->setRecordedAtSha($branch, $changedFiles->currentSha());
-        $graph->setLastRunTree($branch, $changedFiles->snapshotTree(
-            array_values(array_unique([...$graph->allTestFiles(), ...$graph->allSourceFiles()])),
-        ));
+
+        // A narrowed or aborted run only tells us about the files its own tests
+        // touched, not about every other file this snapshot would otherwise cover —
+        // advancing the baseline here would "bank" unverified edits as already-seen
+        // (see the doc comment on isPartialRun()). Leave both pointers at whatever
+        // the last authoritative run left them.
+        if (! $this->isPartialRun()) {
+            $graph->setRecordedAtSha($branch, $changedFiles->currentSha());
+            $graph->setLastRunTree($branch, $changedFiles->snapshotTree(
+                array_values(array_unique([...$graph->allTestFiles(), ...$graph->allSourceFiles()])),
+            ));
+        }
 
         $encoded = $graph->encode();
 
         if ($encoded !== null) {
             $state->write(Storage::GRAPH_KEY, $encoded);
         }
+    }
+
+    /**
+     * Whether this run isn't authoritative for "every known file not touched this
+     * run is unchanged" — either because it was narrowed to less than the full
+     * configured suite (`--filter`, `--group`, `--testsuite`, or an explicit path
+     * argument), or because it was cut short before finishing (`--stop-on-*`, or
+     * Ctrl-C via RunScope — see that class's doc comment). A narrowed/aborted run
+     * still executed real tests, whose results/edges are recorded as usual; only
+     * the baseline pointers that claim to describe the *whole* tracked file set
+     * are held back.
+     */
+    private function isPartialRun(): bool
+    {
+        if ($this->scope->wasAborted()) {
+            return true;
+        }
+
+        $configuration = Registry::get();
+
+        return $configuration->hasFilter()
+            || $configuration->hasExcludeFilter()
+            || $configuration->hasTestIdFilter()
+            || $configuration->hasTestIdFilterFile()
+            || $configuration->hasGroups()
+            || $configuration->hasExcludeGroups()
+            || $configuration->includeTestSuites() !== []
+            || $configuration->excludeTestSuites() !== []
+            || $configuration->hasCliArguments();
     }
 
     /**

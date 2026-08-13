@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace JMac\Testing\PhpUnit\Tia;
 
+use JMac\Testing\PhpUnit\Tia\Subscribers\RecordExecutionAborted;
 use JMac\Testing\PhpUnit\Tia\Subscribers\RecordTestConsideredRisky;
 use JMac\Testing\PhpUnit\Tia\Subscribers\RecordTestErrored;
 use JMac\Testing\PhpUnit\Tia\Subscribers\RecordTestFailed;
@@ -57,6 +58,7 @@ final class Extension implements ExtensionContract
         $facade->requireCodeCoverageCollection();
 
         $results = new ResultCollector;
+        $scope = new RunScope;
 
         $facade->registerSubscribers(
             new RecordTestPrepared($results),
@@ -67,7 +69,8 @@ final class Extension implements ExtensionContract
             new RecordTestMarkedIncomplete($results),
             new RecordTestConsideredRisky($results),
             new RecordTestFinished($results),
-            new WriteGraph($projectRoot, $results, $storageMode),
+            new RecordExecutionAborted($scope),
+            new WriteGraph($projectRoot, $results, $storageMode, $scope),
         );
     }
 
