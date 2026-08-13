@@ -491,15 +491,18 @@ final class GraphTest extends TestCase
     }
 
     /**
-     * The name is the contract: the incoming set replaces that test file's
-     * edges rather than adding to them, and duplicates within one payload
-     * collapse.
+     * A coverage session only reports what actually executed. When only some
+     * of a file's tests run this session (the common case — TIA skips
+     * cached-passing ones), this call's payload must add to the file's edge
+     * set rather than replace it, or the skipped tests' still-valid source
+     * dependencies would silently drop out and narrow that file's regression
+     * window. Duplicates within one payload still collapse.
      */
     #[Test]
-    public function replace_edges_overwrites_the_previous_edge_set_for_a_test_file(): void
+    public function replace_edges_merges_into_the_previous_edge_set_for_a_test_file(): void
     {
         // Separate directories on purpose: the sibling-directory fallback
-        // would otherwise bridge the dropped edge and mask the overwrite.
+        // would otherwise bridge the two edges and mask a wrongful overwrite.
         $this->repo->write('src/Foo.php', "<?php\n");
         $this->repo->write('lib/Bar.php', "<?php\n");
         $this->repo->write('tests/FooTest.php', "<?php\n");
@@ -511,7 +514,11 @@ final class GraphTest extends TestCase
 
         $this->assertSame(['tests/FooTest.php'], $graph->allTestFiles());
         $this->assertSame(['tests/FooTest.php'], $graph->affected(['lib/Bar.php']));
-        $this->assertSame([], $graph->affected(['src/Foo.php']));
+        $this->assertSame(
+            ['tests/FooTest.php'],
+            $graph->affected(['src/Foo.php']),
+            'The edge recorded before this session must survive a session that never touched it.',
+        );
     }
 
     /**

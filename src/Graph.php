@@ -102,6 +102,18 @@ final class Graph
     }
 
     /**
+     * Folds this run's recorded coverage into each test file's edge set —
+     * merged in, not replaced. A coverage session only reports what actually
+     * executed, and TIA's entire point is to skip cached-passing tests
+     * (§4.7): a file with one skipped method and one freshly-run method would
+     * otherwise have this run's data *replace* its whole edge list, silently
+     * dropping the skipped method's still-valid source dependencies and
+     * narrowing its regression window. Same false-positive-is-cheap,
+     * false-negative-is-fatal reasoning as applyUnknownSourceDirs() below: a
+     * stale edge just costs an extra re-run later; a dropped one defeats TIA.
+     * `PHPUNIT_TIA_FRESH=1` (loadGraph() in Subscribers\WriteGraph) is the
+     * existing escape hatch for clearing accumulated staleness.
+     *
      * @param  array<string, array<int, string>>  $testToFiles
      */
     public function replaceEdges(array $testToFiles): void
@@ -113,13 +125,11 @@ final class Graph
                 continue;
             }
 
-            $this->edges[$testRel] = [];
-
             foreach ($sources as $source) {
                 $this->link($testFile, $source);
             }
 
-            $this->edges[$testRel] = array_values(array_unique($this->edges[$testRel]));
+            $this->edges[$testRel] = array_values(array_unique($this->edges[$testRel] ?? []));
         }
     }
 
