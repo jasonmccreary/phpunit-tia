@@ -17,10 +17,10 @@ use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\TestStatus\TestStatus;
 
 /**
- * Exercises RunWithTia::setUp() directly (§4.7) against a scratch repo with
- * a pre-recorded graph, rather than through a full PHPUnit subprocess — that
+ * Exercises RunWithTia::setUp() directly against a scratch repo with a
+ * pre-recorded graph, rather than through a full PHPUnit subprocess — that
  * end-to-end path (including the real --fail-on-skipped interaction) is
- * validated separately in fixture-app/ (see docs/TIA.md milestone 4 notes).
+ * validated separately in fixture-app/.
  */
 final class RunWithTiaTest extends TestCase
 {

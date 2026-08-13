@@ -47,7 +47,7 @@ final class Extension implements ExtensionContract
             return;
         }
 
-        // Verified against PHPUnit 13.2.6 (docs/decisions.md, docs/TIA.md §6): CodeCoverage::init()
+        // Verified against PHPUnit 13.2.6 (docs/decisions.md): CodeCoverage::init()
         // calls CodeCoverageFilterRegistry::init($configuration) without forwarding
         // force=true when only an extension (not a <coverage><report> target)
         // requires collection, leaving the filter null. Its own get() then hits

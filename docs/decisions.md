@@ -1,11 +1,10 @@
 # Design decisions & verified findings
 
-Extracted from `TIA.md` (the original v1 design/build doc, now a completed
-milestone log — see `docs/roadmap.md` for what's still open). This file
-holds the "why" reasoning that isn't fully captured by code comments or the
-README: an architectural constraint proved against PHPUnit source, and two
-`@internal`-marked PHPUnit bugs found empirically during milestone 1. Both
-still justify real code in `src/Extension.php` and `src/Traits/RunWithTia.php`.
+This file holds the "why" reasoning that isn't fully captured by code
+comments or the README: an architectural constraint proved against PHPUnit
+source, and two `@internal`-marked PHPUnit bugs found empirically during
+v1's build. Both still justify real code in `src/Extension.php` and
+`src/Traits/RunWithTia.php`. See `docs/roadmap.md` for what's still open.
 
 ---
 
