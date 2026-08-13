@@ -9,13 +9,19 @@ use JMac\Testing\PhpUnit\Tia\FileState;
 use JMac\Testing\PhpUnit\Tia\Fingerprint;
 use JMac\Testing\PhpUnit\Tia\Graph;
 use JMac\Testing\PhpUnit\Tia\ResultCollector;
+use JMac\Testing\PhpUnit\Tia\RunScope;
 use JMac\Testing\PhpUnit\Tia\Storage;
 use JMac\Testing\PhpUnit\Tia\Subscribers\WriteGraph;
 use JMac\Testing\PhpUnit\Tia\Tests\Support\TempGitRepository;
 use PHPUnit\Event\TestRunner\ExecutionFinished;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestStatus\TestStatus;
+use PHPUnit\TextUI\CliArguments\Builder as CliBuilder;
+use PHPUnit\TextUI\Configuration\Registry;
+use PHPUnit\TextUI\XmlConfiguration\DefaultConfiguration;
 use ReflectionClass;
+use ReflectionProperty;
 
 /**
  * Covers the write side end to end: load the on-disk graph, fold in this
@@ -98,6 +104,7 @@ final class WriteGraphTest extends TestCase
         $this->assertTrue($status->isSuccess());
         $this->assertSame(4, $graph->getAssertions('main', $testId));
         $this->assertNotNull($graph->recordedAtSha('main'));
+        $this->assertNotSame([], $graph->lastRunTree('main'), 'A full run must snapshot the tree.');
     }
 
     /**
@@ -205,6 +212,98 @@ final class WriteGraphTest extends TestCase
         $this->assertNull($this->persistedGraph()->getResult('main', $stale));
     }
 
+    /**
+     * A run narrowed by `--filter`/`--group`/`--testsuite`/an explicit path only
+     * tells us about the files its own tests touched — advancing the baseline sha
+     * or re-snapshotting the tree here would "bank" whatever changed in the
+     * meantime as already-seen, even though nothing verified it. The test that
+     * *did* run must still be recorded, though.
+     *
+     * @param  list<string>  $cliArguments
+     */
+    #[Test]
+    #[DataProvider('narrowingCliArguments')]
+    public function it_leaves_the_baseline_alone_on_a_narrowed_run(array $cliArguments): void
+    {
+        [$seededSha, $testId] = $this->seedNarrowableBaseline(
+            self::class.'::it_leaves_the_baseline_alone_on_a_narrowed_run',
+        );
+
+        $this->notify($this->resultsFor($testId), cliArguments: $cliArguments);
+
+        $this->assertBaselineWasLeftAlone($seededSha, $testId);
+    }
+
+    /**
+     * `fromParameters()` mirrors real `$argv`, where index 0 is the invoked
+     * program itself, not the first argument — `SebastianBergmann\CliParser`
+     * unconditionally shifts off whatever doesn't start with `-` in that slot.
+     * A leading `'phpunit'` keeps a bare path argument from being swallowed as
+     * if it were that program name.
+     *
+     * @return array<string, array{list<string>}>
+     */
+    public static function narrowingCliArguments(): array
+    {
+        return [
+            '--filter' => [['phpunit', '--filter=Foo']],
+            '--group' => [['phpunit', '--group=slow']],
+            '--testsuite' => [['phpunit', '--testsuite=unit']],
+            'explicit path' => [['phpunit', 'tests/FooTest.php']],
+        ];
+    }
+
+    /**
+     * Mirrors the narrowed-run case above, but for a run PHPUnit cut short itself
+     * (`--stop-on-failure`/etc., or Ctrl-C) rather than one narrowed by CLI flags —
+     * RunScope is how Subscribers\RecordExecutionAborted reports that.
+     */
+    #[Test]
+    public function it_leaves_the_baseline_alone_on_an_aborted_run(): void
+    {
+        [$seededSha, $testId] = $this->seedNarrowableBaseline(
+            self::class.'::it_leaves_the_baseline_alone_on_an_aborted_run',
+        );
+
+        $scope = new RunScope;
+        $scope->abort();
+
+        $this->notify($this->resultsFor($testId), $scope);
+
+        $this->assertBaselineWasLeftAlone($seededSha, $testId);
+    }
+
+    /**
+     * Seeds a baseline, stamps it with a recorded sha and a tree snapshot, then
+     * commits an unrelated edit after that — the point a full run's baseline
+     * would legitimately move past, and a narrowed/aborted run's must not.
+     *
+     * @return array{0: ?string, 1: string} the seeded sha and the test ID to report this run
+     */
+    private function seedNarrowableBaseline(string $testId): array
+    {
+        $this->seedBaselineWith([]);
+        $seededSha = (new ChangedFiles($this->repo->path()))->currentSha();
+
+        $graph = $this->persistedGraph();
+        $graph->setLastRunTree('main', ['src/Foo.php' => 'stale-hash']);
+        $this->state()->write(Storage::GRAPH_KEY, (string) $graph->encode());
+
+        $this->repo->write('src/Foo.php', "<?php\n\nclass Foo\n{\n    public function bar(): void {}\n}\n");
+        $this->repo->commit('unrelated edit');
+
+        return [$seededSha, $testId];
+    }
+
+    private function assertBaselineWasLeftAlone(?string $seededSha, string $testId): void
+    {
+        $graph = $this->persistedGraph();
+
+        $this->assertSame($seededSha, $graph->recordedAtSha('main'), 'The baseline sha must not advance.');
+        $this->assertSame(['src/Foo.php' => 'stale-hash'], $graph->lastRunTree('main'), 'The tree must not be re-snapshotted.');
+        $this->assertNotNull($graph->getResult('main', $testId), 'The test that actually ran must still be recorded.');
+    }
+
     private function resultsFor(string $testId): ResultCollector
     {
         $results = new ResultCollector;
@@ -244,11 +343,33 @@ final class WriteGraphTest extends TestCase
      * value that is then discarded, so instantiate it without its constructor
      * instead.
      */
-    private function notify(ResultCollector $results): void
+    /**
+     * `WriteGraph::isPartialRun()` reads the process-wide `Registry::get()`
+     * Configuration, so leaving it at whatever the *outer* `phpunit` invocation
+     * running this test suite happened to use (e.g. someone's IDE running this
+     * one test via `--filter`) would make these tests pass or fail depending on
+     * how they're invoked. Pin it to a known, unnarrowed Configuration by
+     * default — same swap-and-restore approach GraphTest.php already uses —
+     * and let callers opt into a narrowed one via $cliArguments.
+     *
+     * @param  list<string>  $cliArguments  Passed through fromParameters(); a leading
+     *                                      'phpunit' avoids the parser swallowing a lone
+     *                                      positional argument as the program name.
+     */
+    private function notify(ResultCollector $results, ?RunScope $scope = null, array $cliArguments = ['phpunit']): void
     {
         $event = (new ReflectionClass(ExecutionFinished::class))->newInstanceWithoutConstructor();
 
-        (new WriteGraph($this->repo->path(), $results, 'local'))->notify($event);
+        $registry = new ReflectionProperty(Registry::class, 'instance');
+        $original = $registry->getValue();
+
+        try {
+            Registry::init((new CliBuilder)->fromParameters($cliArguments), DefaultConfiguration::create());
+
+            (new WriteGraph($this->repo->path(), $results, 'local', $scope ?? new RunScope))->notify($event);
+        } finally {
+            $registry->setValue(null, $original);
+        }
     }
 
     private function persistedGraph(): Graph
