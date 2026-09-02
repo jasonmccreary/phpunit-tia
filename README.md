@@ -61,6 +61,82 @@ abstract class TestCase extends \PHPUnit\Framework\TestCase
 }
 ```
 
+**Note:** PHPUnit implements the 'skip' mechanism by using an exception for flow control which can lead to problems. 
+
+```php
+class FooTest extends BaseTestCase
+{
+    private array $originalEnv;
+
+    public function setUp(): void
+    {
+        parent::setUp();
+        // When test is skipped, this code is not run
+        $this->originalEnv = $_ENV;
+        $_ENV = [];
+    }
+
+    public function tearDown(): void
+    {
+        // $this->originalEnv may be uninitialized.
+        $_ENV = $this->originalEnv;
+        parent::tearDown();
+    }
+```
+
+When the test is skipped, this will give an error `Error: Typed property FooTest::$originalEnv must not be accessed before initialization`.
+
+If you have some code that needs to be initialized in your `setUp()`, you should call the `parent::setUp()` last.
+
+
+```php
+class FooTest extends BaseTestCase
+{
+    private array $originalEnv;
+
+    public function setUp(): void
+    {
+        // Save the original $_ENV array
+        $this->originalEnv = $_ENV;
+        $_ENV = [];
+        parent::setUp();
+    }
+
+    public function tearDown(): void
+    {
+        // Restore the original $_ENV array
+        $_ENV = $this->originalEnv;
+        parent::tearDown();
+    }
+```
+
+Alternatively, you can check if the test was skipped:
+
+```php
+class FooTest extends BaseTestCase
+{
+    private array $originalEnv;
+
+    public function setUp(): void
+    {
+        parent::setUp();
+        // Save the original $_ENV array
+        $this->originalEnv = $_ENV;
+        $_ENV = [];
+    }
+
+    public function tearDown(): void
+    {
+        if ($this->skippedByTia() === true) {
+            return;
+        }
+    
+        // Restore the original $_ENV array
+        $_ENV = $this->originalEnv;
+        parent::tearDown();
+    }
+```
+
 To bypass TIA, you may pass an environment variable at runtime:
 
 ```sh
