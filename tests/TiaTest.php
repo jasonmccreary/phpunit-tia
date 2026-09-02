@@ -227,6 +227,111 @@ final class TiaTest extends TestCase
         $this->assertSame(0, Tia::instance()->cachedAssertionCount('AnyClass', 'any_method'));
     }
 
+    #[Test]
+    public function is_debug_reflects_the_env_var(): void
+    {
+        $this->assertFalse(Tia::isDebug());
+
+        putenv('PHPUNIT_TIA_DEBUG=1');
+
+        try {
+            $this->assertTrue(Tia::isDebug());
+        } finally {
+            putenv('PHPUNIT_TIA_DEBUG');
+        }
+    }
+
+    #[Test]
+    public function debug_reason_reports_when_never_configured(): void
+    {
+        $this->assertSame(
+            'TIA is not configured for this run',
+            Tia::instance()->debugReason('AnyClass', 'any_method'),
+        );
+    }
+
+    #[Test]
+    public function debug_reason_reports_disabled_via_env(): void
+    {
+        [$class, $method] = $this->recordPassingTest();
+
+        putenv('PHPUNIT_TIA=0');
+
+        try {
+            Tia::configure($this->repo->path(), 'local');
+            $this->assertSame('disabled via PHPUNIT_TIA=0', Tia::instance()->debugReason($class, $method));
+        } finally {
+            putenv('PHPUNIT_TIA');
+        }
+    }
+
+    #[Test]
+    public function debug_reason_names_the_changed_source_file(): void
+    {
+        [$class, $method] = $this->recordPassingTest();
+
+        // Same real-token change as it_does_not_replay_a_test_whose_source_file_changed().
+        $this->repo->write('src/Foo.php', "<?php\n\nclass Foo\n{\n    public int \$x = 1;\n}\n");
+
+        Tia::configure($this->repo->path(), 'local');
+
+        $this->assertSame('source changed: src/Foo.php', Tia::instance()->debugReason($class, $method));
+    }
+
+    #[Test]
+    public function debug_reason_reports_a_test_unknown_to_the_graph(): void
+    {
+        $this->recordPassingTest();
+
+        Tia::configure($this->repo->path(), 'local');
+
+        $unknownClass = $this->defineFixtureClass('tests/UnknownTest.php');
+
+        $this->assertSame(
+            'not yet recorded (new or never-run test)',
+            Tia::instance()->debugReason($unknownClass, 'test_something'),
+        );
+    }
+
+    #[Test]
+    public function debug_reason_reports_a_non_success_cached_status(): void
+    {
+        [$class, $method] = $this->recordTest(TestStatus::failure('boom'));
+
+        Tia::configure($this->repo->path(), 'local');
+
+        $this->assertSame(
+            'cached status was failure, only cached passes replay',
+            Tia::instance()->debugReason($class, $method),
+        );
+    }
+
+    #[Test]
+    public function debug_reason_reports_no_cached_result_yet(): void
+    {
+        [$class] = $this->recordPassingTest();
+
+        Tia::configure($this->repo->path(), 'local');
+
+        $this->assertSame(
+            'no cached result yet',
+            Tia::instance()->debugReason($class, 'test_a_different_method_never_run'),
+        );
+    }
+
+    #[Test]
+    public function debug_reason_names_the_policy_that_would_force_a_rerun_of_a_known_unaffected_pass(): void
+    {
+        [$class, $method] = $this->recordPassingTest();
+
+        Tia::configure($this->repo->path(), 'local');
+
+        $this->assertSame(
+            "a skip would violate this run's fail-on-skipped/display-skipped (or similar) policy",
+            Tia::instance()->debugReason($class, $method),
+        );
+    }
+
     /**
      * @return array{0: string, 1: string, 2: string} [className, methodName, sha]
      */

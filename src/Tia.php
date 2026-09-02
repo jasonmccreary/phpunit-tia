@@ -36,13 +36,23 @@ final class Tia
     /** @var array<string, true> project-relative test file => affected */
     private array $affectedTestFiles;
 
+    /** @var array<string, string> project-relative test file => why it was marked affected (§ diagnostics) */
+    private array $affectedReasons;
+
+    /**
+     * @param  array<string, true>  $affectedTestFiles
+     * @param  array<string, string>  $affectedReasons
+     */
     private function __construct(
         private readonly bool $active,
         private readonly ?Graph $graph,
         private readonly string $branch,
         array $affectedTestFiles,
+        array $affectedReasons = [],
+        private readonly ?string $inactiveReason = null,
     ) {
         $this->affectedTestFiles = $affectedTestFiles;
+        $this->affectedReasons = $affectedReasons;
     }
 
     /**
@@ -83,6 +93,12 @@ final class Tia
     public static function isFresh(): bool
     {
         return getenv('PHPUNIT_TIA_FRESH') === '1';
+    }
+
+    /** `PHPUNIT_TIA_DEBUG=1` — have {@see Traits\RunWithTia} report why each non-skipped test ran. */
+    public static function isDebug(): bool
+    {
+        return getenv('PHPUNIT_TIA_DEBUG') === '1';
     }
 
     /**
@@ -143,10 +159,68 @@ final class Tia
         return $this->graph?->recordedAtSha($this->branch);
     }
 
+    /**
+     * `PHPUNIT_TIA_DEBUG=1` companion to {@see cachedStatusIfUnaffected()} —
+     * called by the trait only once it's already decided *not* to skip, to
+     * explain why. Mirrors that method's own early-return structure so the
+     * two stay in lockstep, but returns a reason string at each branch
+     * instead of `null`.
+     */
+    public function debugReason(string $class, string $method): string
+    {
+        if (! $this->active || $this->graph === null) {
+            return $this->inactiveReason ?? 'TIA inactive this run';
+        }
+
+        try {
+            $file = (new ReflectionClass($class))->getFileName();
+        } catch (Throwable) {
+            return 'test class could not be reflected';
+        }
+
+        if ($file === false) {
+            return "test class has no resolvable file (e.g. eval()'d code)";
+        }
+
+        if (! $this->graph->knowsTest($file)) {
+            return 'not yet recorded (new or never-run test)';
+        }
+
+        $relative = $this->graph->relativePath($file);
+
+        if ($relative === null) {
+            return 'test file is outside the project root';
+        }
+
+        if (isset($this->affectedTestFiles[$relative])) {
+            return $this->affectedReasons[$relative] ?? 'marked affected';
+        }
+
+        $status = $this->graph->getResult($this->branch, $class.'::'.$method);
+
+        if ($status === null) {
+            return 'no cached result yet';
+        }
+
+        if (! $status->isSuccess()) {
+            return "cached status was {$status->asString()}, only cached passes replay";
+        }
+
+        return "a skip would violate this run's fail-on-skipped/display-skipped (or similar) policy";
+    }
+
     private static function boot(): self
     {
-        if (! self::$configured || self::$projectRoot === null || ! self::isEnabled() || self::isFresh()) {
-            return self::inactive();
+        if (! self::$configured || self::$projectRoot === null) {
+            return self::inactive('TIA is not configured for this run');
+        }
+
+        if (! self::isEnabled()) {
+            return self::inactive('disabled via PHPUNIT_TIA=0');
+        }
+
+        if (self::isFresh()) {
+            return self::inactive('PHPUNIT_TIA_FRESH=1 — baseline is being rebuilt this run');
         }
 
         try {
@@ -154,7 +228,7 @@ final class Tia
         } catch (Throwable) {
             // A TIA replay failure must never break the underlying test
             // suite — fall back to letting every test actually run.
-            return self::inactive();
+            return self::inactive('an internal error occurred while loading the TIA graph');
         }
     }
 
@@ -167,13 +241,13 @@ final class Tia
         $raw = $state->read(Storage::GRAPH_KEY);
 
         if ($raw === null) {
-            return self::inactive();
+            return self::inactive('no stored graph yet (looks like the first run)');
         }
 
         $graph = Graph::decode($raw, $projectRoot);
 
         if ($graph === null) {
-            return self::inactive();
+            return self::inactive('stored graph could not be decoded (corrupt, or from an unsupported schema version)');
         }
 
         $graph->setResolvers($resolvers);
@@ -181,11 +255,11 @@ final class Tia
         $current = Fingerprint::compute($projectRoot);
 
         if (! Fingerprint::structuralMatches($graph->fingerprint(), $current)) {
-            return self::inactive();
+            return self::inactive('composer.lock/phpunit.xml changed since the stored graph was written');
         }
 
         if (Fingerprint::environmentalDrift($graph->fingerprint(), $current) !== []) {
-            return self::inactive();
+            return self::inactive('the environment (e.g. PHP version) drifted since the stored graph was written');
         }
 
         $changedFiles = new ChangedFiles($projectRoot);
@@ -195,16 +269,19 @@ final class Tia
         if ($changed === null) {
             // Baseline sha isn't reachable from HEAD (rebase, force-push) —
             // the diff can't be trusted, so don't replay anything this run.
-            return self::inactive();
+            return self::inactive('baseline commit is not reachable from HEAD (rebase/force-push?) — the diff cannot be trusted');
         }
 
         $changed = $changedFiles->filterUnchangedSinceLastRun($changed, $graph->lastRunTree($branch));
 
-        return new self(true, $graph, $branch, array_fill_keys($graph->affected($changed), true));
+        $reasons = [];
+        $affected = $graph->affected($changed, $reasons);
+
+        return new self(true, $graph, $branch, array_fill_keys($affected, true), $reasons);
     }
 
-    private static function inactive(): self
+    private static function inactive(?string $reason = null): self
     {
-        return new self(false, null, 'default', []);
+        return new self(false, null, 'default', [], [], $reason);
     }
 }

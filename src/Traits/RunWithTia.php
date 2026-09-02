@@ -29,6 +29,13 @@ trait RunWithTia
                 'TIA: unaffected since %s, last run passed',
                 $tia->recordedAtSha() ?? 'unknown',
             ));
+        } elseif (Tia::isDebug()) {
+            fwrite(STDERR, sprintf(
+                "TIA-DEBUG: running %s::%s — %s\n",
+                static::class,
+                $method,
+                $tia->debugReason(static::class, $method),
+            ));
         }
 
         parent::setUp();
