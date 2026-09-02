@@ -37,6 +37,11 @@ final class ChangedFiles
         $remaining = [];
 
         foreach (array_keys($candidates) as $file) {
+            // array_keys() casts purely-numeric path segments back to int
+            // (PHP's normal array-key coercion) — restore the string so
+            // callers with `string $path` params under strict_types don't
+            // choke on a numeric-looking file name.
+            $file = (string) $file;
             $snapshot = $lastRunTree[$file] ?? null;
             $current = $this->currentHash($file);
 
@@ -114,7 +119,11 @@ final class ChangedFiles
             $unique[$file] = true;
         }
 
-        $candidates = array_keys($this->filterIgnored($unique));
+        // array_keys() casts purely-numeric path segments back to int (PHP's
+        // normal array-key coercion) — restore the string so callers with
+        // `string $path` params under strict_types don't choke on a
+        // numeric-looking file name.
+        $candidates = array_map(strval(...), array_keys($this->filterIgnored($unique)));
 
         if ($sha !== null && $sha !== '') {
             return $this->filterBehaviourallyUnchanged($candidates, $sha);
