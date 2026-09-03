@@ -103,6 +103,56 @@ final class TiaTest extends TestCase
     }
 
     #[Test]
+    public function it_replays_a_test_inherited_from_an_abstract_fixture_class(): void
+    {
+        // Regression for #9: a concrete test class that declares no test
+        // methods of its own, inheriting them all from an abstract fixture,
+        // must still replay. PHPUnit itself records the edge under the
+        // *fixture's* file (Reflection::sourceLocationFor reflects the
+        // method's declaring class), so the replay lookup has to resolve the
+        // same way rather than reflecting the concrete subclass.
+        $this->repo->write('src/Foo.php', "<?php\n\nclass Foo\n{\n}\n");
+
+        $method = 'test_it_works';
+        $fixtureClass = 'TiaFixtureAbstract'.bin2hex(random_bytes(6));
+        $this->repo->write(
+            'tests/EmailQueueFixture.php',
+            "<?php\n\nabstract class {$fixtureClass}\n{\n    public function {$method}(): void {}\n}\n",
+        );
+        require $this->repo->path().'/tests/EmailQueueFixture.php';
+
+        $concreteClass = 'TiaFixtureConcrete'.bin2hex(random_bytes(6));
+        $this->repo->write(
+            'tests/FooTest.php',
+            "<?php\n\nclass {$concreteClass} extends {$fixtureClass}\n{\n}\n",
+        );
+        require $this->repo->path().'/tests/FooTest.php';
+
+        $sha = $this->repo->commit('add Foo + fixture + concrete subclass');
+
+        $graph = new Graph($this->repo->path());
+        // Edge keyed by the fixture file — matching what PHPUnit's own
+        // TestMethodBuilder records for an inherited test method.
+        $graph->link($this->repo->path().'/tests/EmailQueueFixture.php', $this->repo->path().'/src/Foo.php');
+        $graph->setResult('main', $concreteClass.'::'.$method, TestStatus::success()->asInt(), '', 0.01, 1, 'tests/EmailQueueFixture.php');
+        $graph->setFingerprint(Fingerprint::compute($this->repo->path()));
+        $graph->setRecordedAtSha('main', $sha);
+
+        $changedFiles = new ChangedFiles($this->repo->path());
+        $graph->setLastRunTree('main', $changedFiles->snapshotTree(['src/Foo.php', 'tests/EmailQueueFixture.php', 'tests/FooTest.php']));
+
+        $state = new FileState(Storage::resolve($this->repo->path(), 'local'));
+        $state->write(Storage::GRAPH_KEY, (string) $graph->encode());
+
+        Tia::configure($this->repo->path(), 'local');
+
+        $status = Tia::instance()->cachedStatusIfUnaffected($concreteClass, $method);
+
+        $this->assertNotNull($status);
+        $this->assertTrue($status->isSuccess());
+    }
+
+    #[Test]
     public function it_does_not_replay_a_test_whose_source_file_changed(): void
     {
         [$class, $method] = $this->recordPassingTest();
@@ -125,7 +175,7 @@ final class TiaTest extends TestCase
 
         Tia::configure($this->repo->path(), 'local');
 
-        $unknownClass = $this->defineFixtureClass('tests/UnknownTest.php');
+        $unknownClass = $this->defineFixtureClass('tests/UnknownTest.php', ['test_something']);
 
         $this->assertNull(Tia::instance()->cachedStatusIfUnaffected($unknownClass, 'test_something'));
     }
@@ -285,7 +335,7 @@ final class TiaTest extends TestCase
 
         Tia::configure($this->repo->path(), 'local');
 
-        $unknownClass = $this->defineFixtureClass('tests/UnknownTest.php');
+        $unknownClass = $this->defineFixtureClass('tests/UnknownTest.php', ['test_something']);
 
         $this->assertSame(
             'not yet recorded (new or never-run test)',
@@ -346,7 +396,7 @@ final class TiaTest extends TestCase
     private function recordTest(TestStatus $status, ?string $sha = null, ?array $fingerprint = null): array
     {
         $this->repo->write('src/Foo.php', "<?php\n\nclass Foo\n{\n}\n");
-        $class = $this->defineFixtureClass('tests/FooTest.php');
+        $class = $this->defineFixtureClass('tests/FooTest.php', ['test_it_works', 'test_a_different_method_never_run']);
         $method = 'test_it_works';
 
         $recordedSha = $this->repo->commit('add Foo + FooTest');
@@ -366,10 +416,18 @@ final class TiaTest extends TestCase
         return [$class, $method, $sha ?? $recordedSha];
     }
 
-    private function defineFixtureClass(string $relativePath): string
+    /**
+     * @param  list<string>  $methods  Real method names to declare on the fixture class —
+     *                                 Tia now resolves a test's file via ReflectionMethod
+     *                                 (to match how PHPUnit itself records the edge), so
+     *                                 callers must reflect an actual declared method, not
+     *                                 just a class.
+     */
+    private function defineFixtureClass(string $relativePath, array $methods = ['test_it_works']): string
     {
         $class = 'TiaFixture'.bin2hex(random_bytes(6));
-        $this->repo->write($relativePath, "<?php\n\nclass {$class}\n{\n}\n");
+        $body = implode('', array_map(static fn (string $method) => "    public function {$method}(): void {}\n", $methods));
+        $this->repo->write($relativePath, "<?php\n\nclass {$class}\n{\n{$body}}\n");
         require $this->repo->path().'/'.$relativePath;
 
         return $class;

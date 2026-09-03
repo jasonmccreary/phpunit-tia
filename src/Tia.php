@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace JMac\Testing\PhpUnit\Tia;
 
 use PHPUnit\Framework\TestStatus\TestStatus;
-use ReflectionClass;
+use ReflectionMethod;
 use Throwable;
 
 /**
@@ -114,8 +114,13 @@ final class Tia
             return null;
         }
 
+        // ReflectionMethod, not ReflectionClass: must match the file PHPUnit itself
+        // recorded the edge under (TestMethodBuilder → Reflection::sourceLocationFor),
+        // which is the method's *declaring* file. For a test inherited from an
+        // abstract fixture, that's the fixture's file, not the concrete subclass's —
+        // using ReflectionClass here would never find the edge Recorder wrote.
         try {
-            $file = (new ReflectionClass($class))->getFileName();
+            $file = (new ReflectionMethod($class, self::methodNameOnly($method)))->getFileName();
         } catch (Throwable) {
             return null;
         }
@@ -173,13 +178,13 @@ final class Tia
         }
 
         try {
-            $file = (new ReflectionClass($class))->getFileName();
+            $file = (new ReflectionMethod($class, self::methodNameOnly($method)))->getFileName();
         } catch (Throwable) {
-            return 'test class could not be reflected';
+            return 'test method could not be reflected';
         }
 
         if ($file === false) {
-            return "test class has no resolvable file (e.g. eval()'d code)";
+            return "test method has no resolvable file (e.g. eval()'d code)";
         }
 
         if (! $this->graph->knowsTest($file)) {
@@ -207,6 +212,16 @@ final class Tia
         }
 
         return "a skip would violate this run's fail-on-skipped/display-skipped (or similar) policy";
+    }
+
+    /**
+     * RunWithTia passes `methodName#dataSetName` as $method to key data-provided
+     * results in the graph, but that composite isn't a real declared method —
+     * ReflectionMethod needs just the method name to find where it's declared.
+     */
+    private static function methodNameOnly(string $method): string
+    {
+        return explode('#', $method, 2)[0];
     }
 
     private static function boot(): self
