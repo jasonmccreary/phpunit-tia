@@ -21,6 +21,14 @@ use PHPUnit\TextUI\Configuration\Registry;
  */
 final class Graph
 {
+    /**
+     * The branch whose baseline is read when the current branch has none of
+     * its own. Lives here rather than in Tia/Extension because Graph is the
+     * only class that actually consults it — the others just pass a
+     * configured value through.
+     */
+    public const string DEFAULT_FALLBACK_BRANCH = 'main';
+
     private const int SCHEMA_VERSION = 1;
 
     /** @var array<int, string> */
@@ -54,6 +62,8 @@ final class Graph
 
     private ?TestPaths $testPaths = null;
 
+    private string $fallbackBranch = self::DEFAULT_FALLBACK_BRANCH;
+
     public function __construct(string $projectRoot)
     {
         $real = @realpath($projectRoot);
@@ -81,6 +91,18 @@ final class Graph
     public function setTestPaths(?TestPaths $testPaths): void
     {
         $this->testPaths = $testPaths;
+    }
+
+    /**
+     * Expects an already-normalized branch name — Tia::configure() is the one
+     * place trimming and the empty => DEFAULT_FALLBACK_BRANCH substitution
+     * happen, since every entry point funnels through it. An untrimmed value
+     * here wouldn't error, it would just never match a baseline key, silently
+     * disabling the fallback.
+     */
+    public function setFallbackBranch(string $fallbackBranch): void
+    {
+        $this->fallbackBranch = $fallbackBranch;
     }
 
     public function link(string $testFile, string $sourceFile): void
@@ -406,9 +428,9 @@ final class Graph
         }
     }
 
-    public function recordedAtSha(string $branch, string $fallbackBranch = 'main'): ?string
+    public function recordedAtSha(string $branch): ?string
     {
-        return $this->baselineFor($branch, $fallbackBranch)['sha'];
+        return $this->baselineFor($branch)['sha'];
     }
 
     public function setRecordedAtSha(string $branch, ?string $sha): void
@@ -439,16 +461,16 @@ final class Graph
         $this->baselines[$branch]['results'][$testId] = $entry;
     }
 
-    public function getAssertions(string $branch, string $testId, string $fallbackBranch = 'main'): ?int
+    public function getAssertions(string $branch, string $testId): ?int
     {
-        $baseline = $this->baselineFor($branch, $fallbackBranch);
+        $baseline = $this->baselineFor($branch);
 
         return $baseline['results'][$testId]['assertions'] ?? null;
     }
 
-    public function getResult(string $branch, string $testId, string $fallbackBranch = 'main'): ?TestStatus
+    public function getResult(string $branch, string $testId): ?TestStatus
     {
-        $baseline = $this->baselineFor($branch, $fallbackBranch);
+        $baseline = $this->baselineFor($branch);
 
         if (! isset($baseline['results'][$testId])) {
             return null;
@@ -473,9 +495,9 @@ final class Graph
     /**
      * @return array<int, string>
      */
-    public function testFilesToRerun(string $branch, string $fallbackBranch = 'main'): array
+    public function testFilesToRerun(string $branch): array
     {
-        $baseline = $this->baselineFor($branch, $fallbackBranch);
+        $baseline = $this->baselineFor($branch);
         $files = [];
 
         foreach ($baseline['results'] as $result) {
@@ -499,9 +521,9 @@ final class Graph
         return array_keys($files);
     }
 
-    public function hasUnlocatedTestsToRerun(string $branch, string $fallbackBranch = 'main'): bool
+    public function hasUnlocatedTestsToRerun(string $branch): bool
     {
-        $baseline = $this->baselineFor($branch, $fallbackBranch);
+        $baseline = $this->baselineFor($branch);
 
         foreach ($baseline['results'] as $result) {
             if (! $this->shouldRerun($result['status'])) {
@@ -602,22 +624,22 @@ final class Graph
     /**
      * @return array<string, string>
      */
-    public function lastRunTree(string $branch, string $fallbackBranch = 'main'): array
+    public function lastRunTree(string $branch): array
     {
-        return $this->baselineFor($branch, $fallbackBranch)['tree'];
+        return $this->baselineFor($branch)['tree'];
     }
 
     /**
      * @return array{sha: ?string, tree: array<string, string>, results: array<string, array{status: int, message: string, time: float, assertions?: int, file?: string}>}
      */
-    private function baselineFor(string $branch, string $fallbackBranch): array
+    private function baselineFor(string $branch): array
     {
         if (isset($this->baselines[$branch])) {
             return $this->baselines[$branch];
         }
 
-        if ($branch !== $fallbackBranch && isset($this->baselines[$fallbackBranch])) {
-            return $this->baselines[$fallbackBranch];
+        if ($branch !== $this->fallbackBranch && isset($this->baselines[$this->fallbackBranch])) {
+            return $this->baselines[$this->fallbackBranch];
         }
 
         return ['sha' => null, 'tree' => [], 'results' => []];

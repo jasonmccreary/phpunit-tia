@@ -32,6 +32,7 @@ final class Extension implements ExtensionContract
 
         $projectRoot = $this->projectRoot($configuration);
         $storageMode = $this->storageMode($parameters);
+        $fallbackBranch = $this->fallbackBranch($parameters);
         $resolvers = Config::loadResolvers($projectRoot);
 
         // Configure the replay side unconditionally, before the driver check
@@ -39,7 +40,7 @@ final class Extension implements ExtensionContract
         // tests needs no coverage driver at all, only recording new edges
         // does. This lets RunWithTia keep working on a machine that lost its
         // driver after the graph was written elsewhere (e.g. CI vs. local).
-        Tia::configure($projectRoot, $storageMode, $resolvers);
+        Tia::configure($projectRoot, $storageMode, $resolvers, $fallbackBranch);
 
         if (! $this->coverageDriverAvailable()) {
             fwrite(STDERR, "phpunit-tia: no coverage driver (pcov/xdebug) available — recording disabled for this run.\n");
@@ -121,5 +122,23 @@ final class Extension implements ExtensionContract
         }
 
         return 'global';
+    }
+
+    /**
+     * <parameter name="fallback-branch" value="develop"/> — the branch whose
+     * baseline is read when the current branch has none of its own. Defaults
+     * to Graph::DEFAULT_FALLBACK_BRANCH.
+     *
+     * Passed through verbatim — trimming and the empty => default
+     * substitution belong to Tia::configure(), the single choke point every
+     * entry point already goes through.
+     */
+    private function fallbackBranch(ParameterCollection $parameters): string
+    {
+        if (! $parameters->has('fallback-branch')) {
+            return Graph::DEFAULT_FALLBACK_BRANCH;
+        }
+
+        return $parameters->get('fallback-branch');
     }
 }

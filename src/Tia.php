@@ -26,6 +26,8 @@ final class Tia
 
     private static string $storageMode = 'global';
 
+    private static string $fallbackBranch = Graph::DEFAULT_FALLBACK_BRANCH;
+
     /** @var list<Contracts\Resolver> */
     private static array $resolvers = [];
 
@@ -61,13 +63,31 @@ final class Tia
      *                                               file (Config::loadResolvers()) since PHPUnit's own
      *                                               flat-string ParameterCollection can't express a list.
      */
-    public static function configure(string $projectRoot, string $storageMode = 'global', array $resolvers = []): void
-    {
+    public static function configure(
+        string $projectRoot,
+        string $storageMode = 'global',
+        array $resolvers = [],
+        string $fallbackBranch = Graph::DEFAULT_FALLBACK_BRANCH,
+    ): void {
         self::$projectRoot = $projectRoot;
         self::$storageMode = $storageMode;
         self::$resolvers = $resolvers;
+        self::$fallbackBranch = self::normalizeFallbackBranch($fallbackBranch);
         self::$configured = true;
         self::$instance = null;
+    }
+
+    /**
+     * Both entry points — Extension's `fallback-branch` XML parameter and any
+     * direct configure() call — pass through here, so Graph and everything
+     * downstream can trust a trimmed, non-empty branch name. Normalizing in
+     * Extension instead would leave direct callers unnormalized.
+     */
+    private static function normalizeFallbackBranch(string $fallbackBranch): string
+    {
+        $trimmed = trim($fallbackBranch);
+
+        return $trimmed !== '' ? $trimmed : Graph::DEFAULT_FALLBACK_BRANCH;
     }
 
     /** Test seam: drop back to the unconfigured state between test cases that touch this singleton. */
@@ -75,6 +95,7 @@ final class Tia
     {
         self::$projectRoot = null;
         self::$storageMode = 'global';
+        self::$fallbackBranch = Graph::DEFAULT_FALLBACK_BRANCH;
         self::$resolvers = [];
         self::$configured = false;
         self::$instance = null;
@@ -239,7 +260,12 @@ final class Tia
         }
 
         try {
-            return self::attemptBoot(self::$projectRoot, self::$storageMode, self::$resolvers);
+            return self::attemptBoot(
+                self::$projectRoot,
+                self::$storageMode,
+                self::$resolvers,
+                self::$fallbackBranch,
+            );
         } catch (Throwable) {
             // A TIA replay failure must never break the underlying test
             // suite — fall back to letting every test actually run.
@@ -250,8 +276,12 @@ final class Tia
     /**
      * @param  list<Contracts\Resolver>  $resolvers
      */
-    private static function attemptBoot(string $projectRoot, string $storageMode, array $resolvers): self
-    {
+    private static function attemptBoot(
+        string $projectRoot,
+        string $storageMode,
+        array $resolvers,
+        string $fallbackBranch,
+    ): self {
         $state = new FileState(Storage::resolve($projectRoot, $storageMode));
         $raw = $state->read(Storage::GRAPH_KEY);
 
@@ -266,6 +296,7 @@ final class Tia
         }
 
         $graph->setResolvers($resolvers);
+        $graph->setFallbackBranch($fallbackBranch);
 
         $current = Fingerprint::compute($projectRoot);
 
