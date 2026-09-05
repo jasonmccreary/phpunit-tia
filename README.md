@@ -75,6 +75,19 @@ PHPUNIT_TIA_FRESH=1 phpunit ...
 
 **Note:** running tests with the `--fail-on-skipped` or `--display-skipped` option will automatically bypass TIA's speed boost. You will need to drop these options to take full advantage of TIA.
 
+### Debugging a test that won't skip
+If a test keeps running when you expect TIA to skip it, pass an environment variable to have TIA explain why on STDERR, one line per test that actually ran:
+
+```sh
+PHPUNIT_TIA_DEBUG=1 phpunit ...
+```
+
+```
+TIA-DEBUG: running Tests\FooTest::test_it_works — source changed: src/Foo.php
+```
+
+A common cause: TIA's change detection includes `git status`, so any file a test run writes back into the project tree (a fixture database, a generated upload, a cache directory) looks "changed" on every run if it isn't `.gitignore`d — and can mark every test that shares its directory as affected. If the reported reason names a file you didn't intentionally edit, `.gitignore` it and re-run.
+
 ## CI Workflows
 To use TIA in CI, your baseline graph must persist between runs. See our own [GitHub Action workflow](.github/workflows/tests.yml) for an example. At a high level, your workflow needs to:
 

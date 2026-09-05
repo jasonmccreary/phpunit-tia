@@ -211,9 +211,13 @@ final class Graph
 
     /**
      * @param  array<int, string>  $changedFiles  Absolute or relative paths.
+     * @param  array<string, string>  $reasons  Out-param (§ diagnostics): project-relative test
+     *                                          file => human-readable reason it was marked affected.
+     *                                          First pass to mark a given test wins, mirroring the
+     *                                          `isset($affectedSet[...])` short-circuiting below.
      * @return array<int, string>
      */
-    public function affected(array $changedFiles): array
+    public function affected(array $changedFiles, array &$reasons = []): array
     {
         $relPaths = [];
 
@@ -229,11 +233,12 @@ final class Graph
         $testPaths = $this->testPaths ?? TestPaths::fromProjectRoot($this->projectRoot);
 
         $affectedSet = [];
+        $reasons = [];
 
-        $unknown = $this->applyPhpEdgeChanges($relPaths, $testPaths, $affectedSet);
-        $this->applyTestFileChanges($relPaths, $testPaths, $affectedSet);
-        $this->applyUnknownSourceDirs($unknown, $affectedSet);
-        $this->applyResolvers($unknown, $affectedSet);
+        $unknown = $this->applyPhpEdgeChanges($relPaths, $testPaths, $affectedSet, $reasons);
+        $this->applyTestFileChanges($relPaths, $testPaths, $affectedSet, $reasons);
+        $this->applyUnknownSourceDirs($unknown, $affectedSet, $reasons);
+        $this->applyResolvers($unknown, $affectedSet, $reasons);
 
         return array_keys($affectedSet);
     }
@@ -246,16 +251,20 @@ final class Graph
      *
      * @param  list<string>  $relPaths
      * @param  array<string, true>  $affectedSet
+     * @param  array<string, string>  $reasons
      * @return list<string>
      */
-    private function applyPhpEdgeChanges(array $relPaths, TestPaths $testPaths, array &$affectedSet): array
+    private function applyPhpEdgeChanges(array $relPaths, TestPaths $testPaths, array &$affectedSet, array &$reasons): array
     {
         $changedIds = [];
         $unknown = [];
 
         foreach ($relPaths as $rel) {
             if (isset($this->fileIds[$rel])) {
-                $changedIds[$this->fileIds[$rel]] = true;
+                // Value is the changed file's own relative path, not just a
+                // marker: a matched source id and a changed file's id are the
+                // same file here, so it doubles as the diagnostic reason below.
+                $changedIds[$this->fileIds[$rel]] = $rel;
 
                 continue;
             }
@@ -278,6 +287,7 @@ final class Graph
             foreach ($ids as $id) {
                 if (isset($changedIds[$id])) {
                     $affectedSet[$testFile] = true;
+                    $reasons[$testFile] = "source changed: {$changedIds[$id]}";
 
                     break;
                 }
@@ -293,8 +303,9 @@ final class Graph
      *
      * @param  list<string>  $relPaths
      * @param  array<string, true>  $affectedSet
+     * @param  array<string, string>  $reasons
      */
-    private function applyTestFileChanges(array $relPaths, TestPaths $testPaths, array &$affectedSet): void
+    private function applyTestFileChanges(array $relPaths, TestPaths $testPaths, array &$affectedSet, array &$reasons): void
     {
         foreach ($relPaths as $rel) {
             if (isset($affectedSet[$rel])) {
@@ -310,6 +321,7 @@ final class Graph
             }
 
             $affectedSet[$rel] = true;
+            $reasons[$rel] = 'test file itself changed';
         }
     }
 
@@ -325,8 +337,9 @@ final class Graph
      *
      * @param  list<string>  $unknown
      * @param  array<string, true>  $affectedSet
+     * @param  array<string, string>  $reasons
      */
-    private function applyUnknownSourceDirs(array $unknown, array &$affectedSet): void
+    private function applyUnknownSourceDirs(array $unknown, array &$affectedSet, array &$reasons): void
     {
         if ($unknown === []) {
             return;
@@ -335,7 +348,9 @@ final class Graph
         $unknownDirs = [];
 
         foreach ($unknown as $rel) {
-            $unknownDirs[dirname($rel)] = true;
+            // Last writer wins when two unknown files share a directory —
+            // fine for a diagnostic example, doesn't affect which tests match.
+            $unknownDirs[dirname($rel)] = $rel;
         }
 
         foreach ($this->edges as $testFile => $ids) {
@@ -348,8 +363,11 @@ final class Graph
                     continue;
                 }
 
-                if (isset($unknownDirs[dirname($this->files[$id])])) {
+                $dir = dirname($this->files[$id]);
+
+                if (isset($unknownDirs[$dir])) {
                     $affectedSet[$testFile] = true;
+                    $reasons[$testFile] = "unresolved change '{$unknownDirs[$dir]}' shares a directory with covered source '{$this->files[$id]}'";
 
                     break;
                 }
@@ -366,8 +384,9 @@ final class Graph
      *
      * @param  list<string>  $unknown
      * @param  array<string, true>  $affectedSet
+     * @param  array<string, string>  $reasons
      */
-    private function applyResolvers(array $unknown, array &$affectedSet): void
+    private function applyResolvers(array $unknown, array &$affectedSet, array &$reasons): void
     {
         if ($unknown === [] || $this->resolvers === []) {
             return;
@@ -380,6 +399,7 @@ final class Graph
 
                     if ($testRel !== null) {
                         $affectedSet[$testRel] = true;
+                        $reasons[$testRel] ??= 'resolver '.$resolver::class." matched changed file '{$rel}'";
                     }
                 }
             }

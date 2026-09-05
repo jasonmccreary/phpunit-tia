@@ -15,6 +15,7 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\SkippedWithMessageException;
 use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\TestStatus\TestStatus;
+use Symfony\Component\Process\Process;
 
 /**
  * Exercises RunWithTia::setUp() directly against a scratch repo with a
@@ -140,6 +141,89 @@ final class RunWithTiaTest extends TestCase
         $fixture->setUp();
 
         $this->assertSame(0, $fixture->numberOfAssertionsPerformed());
+    }
+
+    /**
+     * PHPUNIT_TIA_DEBUG=1 (§ diagnostics) has RunWithTia::setUp() write a
+     * `TIA-DEBUG:` line to STDERR explaining why a non-skipped test ran.
+     * fwrite(STDERR, ...) can't be intercepted in-process, so this shells
+     * out to a real PHP process running the fixture directly (Symfony\Process
+     * is already a dependency, used the same way by ChangedFilesTest et al.
+     * for git plumbing).
+     */
+    #[Test]
+    public function it_writes_a_debug_line_to_stderr_when_a_non_skipped_test_runs(): void
+    {
+        $this->recordPassingResult();
+
+        // Real token change (not just whitespace/comments — see TiaTest) so
+        // the test is not skipped.
+        $this->repo->write('src/Foo.php', "<?php\n\nclass Foo\n{\n    public int \$x = 1;\n}\n");
+
+        $errorOutput = $this->runFixtureInSubprocess(debug: true);
+
+        $this->assertStringContainsString(
+            "TIA-DEBUG: running {$this->fixtureClass}::test_it_works — source changed: src/Foo.php",
+            $errorOutput,
+        );
+    }
+
+    #[Test]
+    public function it_writes_nothing_to_stderr_when_debug_mode_is_off(): void
+    {
+        $this->recordPassingResult();
+
+        $this->repo->write('src/Foo.php', "<?php\n\nclass Foo\n{\n    public int \$x = 1;\n}\n");
+
+        $this->assertSame('', $this->runFixtureInSubprocess(debug: false));
+    }
+
+    #[Test]
+    public function it_writes_nothing_to_stderr_when_the_test_is_skipped(): void
+    {
+        $this->recordPassingResult();
+
+        $this->assertSame('', $this->runFixtureInSubprocess(debug: true));
+    }
+
+    private function runFixtureInSubprocess(bool $debug): string
+    {
+        $script = sprintf(
+            <<<'PHP'
+            <?php
+            require %s;
+            require %s;
+
+            JMac\Testing\PhpUnit\Tia\Tia::configure(%s, 'local');
+
+            $fixture = new %s('test_it_works');
+
+            try {
+                // setUp() is protected; called here from the global scope
+                // rather than a sibling TestCase subclass (as the in-process
+                // tests below do), so it needs Reflection to bypass that.
+                (new ReflectionMethod($fixture, 'setUp'))->invoke($fixture);
+            } catch (\Throwable) {
+                // A TIA skip throws — that's fine, we only care about STDERR.
+            }
+
+            PHP,
+            var_export(dirname(__DIR__).'/vendor/autoload.php', true),
+            var_export($this->repo->path().'/tests/FixtureUsingTia.php', true),
+            var_export($this->repo->path(), true),
+            $this->fixtureClass,
+        );
+
+        $scriptPath = $this->repo->path().'/debug_probe.php';
+        file_put_contents($scriptPath, $script);
+
+        $process = new Process(
+            [PHP_BINARY, $scriptPath],
+            env: $debug ? ['PHPUNIT_TIA_DEBUG' => '1'] : ['PHPUNIT_TIA_DEBUG' => false],
+        );
+        $process->run();
+
+        return $process->getErrorOutput();
     }
 
     private function recordPassingResult(int $assertions = 3): string

@@ -185,6 +185,37 @@ final class ChangedFilesTest extends TestCase
     }
 
     #[Test]
+    public function since_returns_string_paths_for_purely_numeric_filenames(): void
+    {
+        // PHP casts an array key to int when the key string is a canonical
+        // decimal integer (digits only, no extension or other characters).
+        // since() collects git-status paths as array keys before returning
+        // them via array_keys() — a bare numeric filename would otherwise
+        // come back as an int, breaking callers with `string $path` params.
+        $this->repo->write('123', "<?php\n");
+
+        $changed = $this->changedFiles->since(null);
+
+        $this->assertSame(['123'], $changed);
+        $this->assertIsString($changed[0]);
+    }
+
+    #[Test]
+    public function filter_unchanged_since_last_run_returns_string_paths_for_purely_numeric_filenames(): void
+    {
+        $this->repo->write('123', "<?php\nfinal class Foo {}\n");
+        $this->repo->commit('add 123');
+
+        $remaining = $this->changedFiles->filterUnchangedSinceLastRun(
+            ['123'],
+            ['123' => 'stale-hash'],
+        );
+
+        $this->assertSame(['123'], $remaining);
+        $this->assertIsString($remaining[0]);
+    }
+
+    #[Test]
     public function snapshot_tree_hashes_each_file(): void
     {
         $this->repo->write('src/Foo.php', "<?php\nfinal class Foo {}\n");

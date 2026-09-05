@@ -70,7 +70,9 @@ final class GraphTest extends TestCase
         $graph->link('tests/FooTest.php', 'src/Foo.php');
         $graph->link('tests/BarTest.php', 'src/Bar.php');
 
-        $this->assertSame(['tests/FooTest.php'], $graph->affected(['src/Foo.php']));
+        $reasons = [];
+        $this->assertSame(['tests/FooTest.php'], $graph->affected(['src/Foo.php'], $reasons));
+        $this->assertSame(['tests/FooTest.php' => 'source changed: src/Foo.php'], $reasons);
     }
 
     #[Test]
@@ -80,7 +82,9 @@ final class GraphTest extends TestCase
 
         $graph = $this->graph();
 
-        $this->assertSame(['tests/FooTest.php'], $graph->affected(['tests/FooTest.php']));
+        $reasons = [];
+        $this->assertSame(['tests/FooTest.php'], $graph->affected(['tests/FooTest.php'], $reasons));
+        $this->assertSame(['tests/FooTest.php' => 'test file itself changed'], $reasons);
     }
 
     #[Test]
@@ -96,7 +100,12 @@ final class GraphTest extends TestCase
         $graph = $this->graph();
         $graph->link('tests/FooTest.php', 'app/Listeners/Foo.php');
 
-        $this->assertSame(['tests/FooTest.php'], $graph->affected(['app/Listeners/Bar.php']));
+        $reasons = [];
+        $this->assertSame(['tests/FooTest.php'], $graph->affected(['app/Listeners/Bar.php'], $reasons));
+        $this->assertSame(
+            ['tests/FooTest.php' => "unresolved change 'app/Listeners/Bar.php' shares a directory with covered source 'app/Listeners/Foo.php'"],
+            $reasons,
+        );
     }
 
     #[Test]
@@ -120,9 +129,16 @@ final class GraphTest extends TestCase
         $graph = $this->graph();
         $graph->setResolvers([$resolver]);
 
+        $reasons = [];
         $this->assertSame(
             ['tests/WidgetTest.php'],
-            $graph->affected(['database/migrations/2024_01_01_create_widgets_table.php']),
+            $graph->affected(['database/migrations/2024_01_01_create_widgets_table.php'], $reasons),
+        );
+        $this->assertArrayHasKey('tests/WidgetTest.php', $reasons);
+        $this->assertStringContainsString($resolver::class, $reasons['tests/WidgetTest.php']);
+        $this->assertStringContainsString(
+            "matched changed file 'database/migrations/2024_01_01_create_widgets_table.php'",
+            $reasons['tests/WidgetTest.php'],
         );
     }
 
@@ -131,7 +147,9 @@ final class GraphTest extends TestCase
     {
         $graph = $this->graph();
 
-        $this->assertSame([], $graph->affected(['src/LongGoneNeverCovered.php']));
+        $reasons = [];
+        $this->assertSame([], $graph->affected(['src/LongGoneNeverCovered.php'], $reasons));
+        $this->assertSame([], $reasons);
     }
 
     #[Test]
