@@ -28,6 +28,17 @@ Next, register the extension in your PHPUnit configuration:
 ```
 
 
+When the current branch has no baseline of its own, TIA falls back to `main`
+by default. To use another branch, add the `fallback-branch` parameter:
+
+```xml
+<parameter name="fallback-branch" value="develop"/>
+```
+
+The fallback branch is used only for reading cached results, the recorded
+commit, and the last-run tree. New results are still recorded under the
+current branch.
+
 ## Usage
 To enable TIA, add the trait to your base `TestCase`:
 

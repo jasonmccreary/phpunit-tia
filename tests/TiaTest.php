@@ -153,6 +153,86 @@ final class TiaTest extends TestCase
     }
 
     #[Test]
+    public function it_uses_a_configured_fallback_branch_for_replay(): void
+    {
+        [$class, $method, $sha] = $this->recordPassingTest(baselineBranch: 'develop');
+
+        Tia::configure($this->repo->path(), 'local', fallbackBranch: 'develop');
+        $tia = Tia::instance();
+
+        $status = $tia->cachedStatusIfUnaffected($class, $method);
+
+        $this->assertNotNull($status);
+        $this->assertTrue($status->isSuccess());
+        $this->assertSame(3, $tia->cachedAssertionCount($class, $method));
+        $this->assertSame($sha, $tia->recordedAtSha());
+    }
+
+    /**
+     * Same setup as the test above but for the tree, which is seeded stale —
+     * so the recordedAtSha() assertion is what proves the develop baseline was
+     * found at all (without it, "no baseline anywhere" would produce the same
+     * null status and the test would pass for the wrong reason).
+     */
+    #[Test]
+    public function it_uses_a_configured_fallback_tree_when_filtering_changes(): void
+    {
+        [$class, $method, $sha] = $this->recordPassingTest(
+            baselineBranch: 'develop',
+            lastRunTree: ['src/Foo.php' => 'stale-hash'],
+        );
+
+        Tia::configure($this->repo->path(), 'local', fallbackBranch: 'develop');
+        $tia = Tia::instance();
+
+        $this->assertSame($sha, $tia->recordedAtSha());
+        $this->assertNull($tia->cachedStatusIfUnaffected($class, $method));
+    }
+
+    /**
+     * Extension passes the raw XML parameter through untouched, so trimming
+     * has to happen here or a padded value would never match a baseline key —
+     * silently disabling the fallback with no way to distinguish that from
+     * "the branch genuinely has no baseline".
+     */
+    #[Test]
+    public function it_trims_a_configured_fallback_branch(): void
+    {
+        [$class, $method, $sha] = $this->recordPassingTest(baselineBranch: 'develop');
+
+        Tia::configure($this->repo->path(), 'local', fallbackBranch: '  develop  ');
+        $tia = Tia::instance();
+
+        $status = $tia->cachedStatusIfUnaffected($class, $method);
+
+        $this->assertNotNull($status);
+        $this->assertTrue($status->isSuccess());
+        $this->assertSame($sha, $tia->recordedAtSha());
+    }
+
+    /**
+     * A blank value must degrade to the default branch rather than to a
+     * fallback that can never match. Recorded on main and run from a branch
+     * cut off it, so replaying proves the default was actually substituted —
+     * on main itself the direct baseline hit would mask it.
+     */
+    #[Test]
+    public function it_falls_back_to_the_default_branch_when_configured_blank(): void
+    {
+        [$class, $method, $sha] = $this->recordPassingTest(baselineBranch: 'main');
+        $this->repo->run(['git', 'checkout', '-q', '-b', 'feature/x']);
+
+        Tia::configure($this->repo->path(), 'local', fallbackBranch: '   ');
+        $tia = Tia::instance();
+
+        $status = $tia->cachedStatusIfUnaffected($class, $method);
+
+        $this->assertNotNull($status);
+        $this->assertTrue($status->isSuccess());
+        $this->assertSame($sha, $tia->recordedAtSha());
+    }
+
+    #[Test]
     public function it_does_not_replay_a_test_whose_source_file_changed(): void
     {
         [$class, $method] = $this->recordPassingTest();
@@ -385,16 +465,25 @@ final class TiaTest extends TestCase
     /**
      * @return array{0: string, 1: string, 2: string} [className, methodName, sha]
      */
-    private function recordPassingTest(?string $sha = null, ?array $fingerprint = null): array
-    {
-        return $this->recordTest(TestStatus::success(), $sha, $fingerprint);
+    private function recordPassingTest(
+        ?string $sha = null,
+        ?array $fingerprint = null,
+        string $baselineBranch = 'main',
+        ?array $lastRunTree = null,
+    ): array {
+        return $this->recordTest(TestStatus::success(), $sha, $fingerprint, $baselineBranch, $lastRunTree);
     }
 
     /**
      * @return array{0: string, 1: string, 2: string} [className, methodName, sha]
      */
-    private function recordTest(TestStatus $status, ?string $sha = null, ?array $fingerprint = null): array
-    {
+    private function recordTest(
+        TestStatus $status,
+        ?string $sha = null,
+        ?array $fingerprint = null,
+        string $baselineBranch = 'main',
+        ?array $lastRunTree = null,
+    ): array {
         $this->repo->write('src/Foo.php', "<?php\n\nclass Foo\n{\n}\n");
         $class = $this->defineFixtureClass('tests/FooTest.php', ['test_it_works', 'test_a_different_method_never_run']);
         $method = 'test_it_works';
@@ -403,12 +492,23 @@ final class TiaTest extends TestCase
 
         $graph = new Graph($this->repo->path());
         $graph->link($this->repo->path().'/tests/FooTest.php', $this->repo->path().'/src/Foo.php');
-        $graph->setResult('main', $class.'::'.$method, $status->asInt(), $status->message(), 0.01, 3, 'tests/FooTest.php');
+        $graph->setResult(
+            $baselineBranch,
+            $class.'::'.$method,
+            $status->asInt(),
+            $status->message(),
+            0.01,
+            3,
+            'tests/FooTest.php',
+        );
         $graph->setFingerprint($fingerprint ?? Fingerprint::compute($this->repo->path()));
-        $graph->setRecordedAtSha('main', $sha ?? $recordedSha);
+        $graph->setRecordedAtSha($baselineBranch, $sha ?? $recordedSha);
 
         $changedFiles = new ChangedFiles($this->repo->path());
-        $graph->setLastRunTree('main', $changedFiles->snapshotTree(['src/Foo.php', 'tests/FooTest.php']));
+        $graph->setLastRunTree(
+            $baselineBranch,
+            $lastRunTree ?? $changedFiles->snapshotTree(['src/Foo.php', 'tests/FooTest.php']),
+        );
 
         $state = new FileState(Storage::resolve($this->repo->path(), 'local'));
         $state->write(Storage::GRAPH_KEY, (string) $graph->encode());

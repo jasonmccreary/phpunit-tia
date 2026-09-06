@@ -166,15 +166,83 @@ final class GraphTest extends TestCase
     }
 
     #[Test]
-    public function get_result_falls_back_to_the_fallback_branch(): void
+    public function get_result_falls_back_to_main_by_default(): void
     {
         $graph = $this->graph();
         $graph->setResult('main', 'Tests\\FooTest::it_works', 0, '', 0.0);
 
-        $status = $graph->getResult('feature/x', 'Tests\\FooTest::it_works', fallbackBranch: 'main');
+        $status = $graph->getResult('feature/x', 'Tests\\FooTest::it_works');
 
         $this->assertNotNull($status);
         $this->assertTrue($status->isSuccess());
+    }
+
+    #[Test]
+    public function get_result_falls_back_to_a_custom_fallback_branch(): void
+    {
+        $graph = $this->graph();
+        $graph->setFallbackBranch('develop');
+        $graph->setResult('develop', 'Tests\\FooTest::it_works', 0, '', 0.0);
+
+        $status = $graph->getResult('feature/x', 'Tests\\FooTest::it_works');
+
+        $this->assertNotNull($status);
+        $this->assertTrue($status->isSuccess());
+    }
+
+    #[Test]
+    public function all_baseline_reads_support_a_custom_fallback_branch(): void
+    {
+        $this->repo->write('tests/FooTest.php', "<?php\n");
+
+        $graph = $this->graph();
+        $graph->setFallbackBranch('develop');
+        $testId = 'Tests\\FooTest::it_works';
+
+        $graph->setResult('develop', $testId, 0, '', 0.0, 4, 'tests/FooTest.php');
+        $graph->setResult('develop', 'Tests\\FooTest::it_fails', 7, 'failed', 0.0, 0, 'tests/FooTest.php');
+        $graph->setResult('develop', 'Tests\\FooTest::it_is_unlocated', 7, 'failed', 0.0);
+        $graph->setRecordedAtSha('develop', 'develop-sha');
+        $graph->setLastRunTree('develop', ['src/Foo.php' => 'develop-hash']);
+
+        $this->assertTrue($graph->getResult('feature/x', $testId)?->isSuccess());
+        $this->assertSame(4, $graph->getAssertions('feature/x', $testId));
+        $this->assertSame('develop-sha', $graph->recordedAtSha('feature/x'));
+        $this->assertSame(['src/Foo.php' => 'develop-hash'], $graph->lastRunTree('feature/x'));
+        $this->assertSame(['tests/FooTest.php'], $graph->testFilesToRerun('feature/x'));
+        $this->assertTrue($graph->hasUnlocatedTestsToRerun('feature/x'));
+    }
+
+    #[Test]
+    public function an_existing_branch_baseline_takes_precedence_over_a_custom_fallback_branch(): void
+    {
+        $graph = $this->graph();
+        $graph->setFallbackBranch('develop');
+        $testId = 'Tests\\FooTest::it_works';
+
+        $graph->setResult('develop', $testId, 0, '', 0.0);
+        $graph->setRecordedAtSha('develop', 'develop-sha');
+        $graph->setResult('feature/x', $testId, 7, 'failed', 0.0);
+        $graph->setRecordedAtSha('feature/x', 'feature-sha');
+
+        $status = $graph->getResult('feature/x', $testId);
+
+        $this->assertNotNull($status);
+        $this->assertTrue($status->isFailure());
+        $this->assertSame('feature-sha', $graph->recordedAtSha('feature/x'));
+    }
+
+    #[Test]
+    public function baseline_reads_are_empty_when_a_custom_fallback_branch_is_missing(): void
+    {
+        $graph = $this->graph();
+        $graph->setFallbackBranch('develop');
+        $testId = 'Tests\\FooTest::it_works';
+
+        $this->assertNull($graph->getResult('feature/x', $testId));
+        $this->assertNull($graph->getAssertions('feature/x', $testId));
+        $this->assertNull($graph->recordedAtSha('feature/x'));
+        $this->assertSame([], $graph->lastRunTree('feature/x'));
     }
 
     #[Test]
