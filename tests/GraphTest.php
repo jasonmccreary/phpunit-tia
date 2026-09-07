@@ -336,6 +336,39 @@ final class GraphTest extends TestCase
     }
 
     #[Test]
+    public function prune_missing_sources_drops_deleted_source_files_and_their_edges(): void
+    {
+        $this->repo->write('src/Foo.php', "<?php\n");
+        $this->repo->write('src/Gone.php', "<?php\n");
+        $this->repo->write('src/Bar.php', "<?php\n");
+        $this->repo->write('tests/FooTest.php', "<?php\n");
+        $this->repo->write('tests/BarTest.php', "<?php\n");
+
+        $graph = $this->graph();
+        $graph->link('tests/FooTest.php', 'src/Foo.php');
+        $graph->link('tests/FooTest.php', 'src/Gone.php');
+        $graph->link('tests/BarTest.php', 'src/Gone.php');
+        $graph->link('tests/BarTest.php', 'src/Bar.php');
+
+        unlink($this->repo->path().'/src/Gone.php');
+
+        $graph->pruneMissingSources();
+
+        $this->assertSame(['src/Foo.php', 'src/Bar.php'], $graph->allSourceFiles());
+        $this->assertSame(['tests/FooTest.php'], $graph->affected(['src/Foo.php']));
+        $this->assertSame(['tests/BarTest.php'], $graph->affected(['src/Bar.php']));
+        // The deleted file is now unknown to the graph, so a change to it is
+        // resolved through the sibling-directory fallback, not a stale edge.
+        $reasons = [];
+        $graph->affected(['src/Gone.php'], $reasons);
+        $this->assertStringContainsString('shares a directory', $reasons['tests/FooTest.php']);
+
+        // Ids were remapped, so a re-link of a surviving file reuses its slot.
+        $graph->link('tests/BarTest.php', 'src/Foo.php');
+        $this->assertSame(['src/Foo.php', 'src/Bar.php'], $graph->allSourceFiles());
+    }
+
+    #[Test]
     public function prune_stale_results_drops_results_for_removed_test_methods(): void
     {
         $this->repo->write('tests/FooTest.php', "<?php\n");

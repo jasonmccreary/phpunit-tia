@@ -85,6 +85,7 @@ final readonly class WriteGraph implements ExecutionFinishedSubscriber
         $graph->markKnownTestFiles($executedTestFiles);
         $graph->pruneStaleResults($branch, $executedTestFiles, $keepTestIds);
         $graph->pruneMissingTests();
+        $graph->pruneMissingSources();
 
         $graph->setFingerprint($currentFingerprint);
 
