@@ -274,6 +274,60 @@ final class WriteGraphTest extends TestCase
     }
 
     /**
+     * A full, unnarrowed run is the only kind that's authoritative for "every
+     * dependent of a deleted source has already been re-run" — see
+     * WriteGraph::notify()'s doc comment on why pruneMissingSources() shares
+     * the isPartialRun() gate with the baseline advancement above it.
+     */
+    #[Test]
+    public function it_prunes_a_deleted_source_file_on_a_full_run(): void
+    {
+        $testId = self::class.'::it_prunes_a_deleted_source_file_on_a_full_run';
+        $this->seedGraphWithDeletableSource($testId);
+
+        $this->notify($this->resultsFor($testId));
+
+        $this->assertNotContains('src/Gone.php', $this->persistedGraph()->allSourceFiles());
+    }
+
+    /**
+     * On a narrowed run, a test that solely depended on the deleted file may
+     * not have executed yet — pruning here would strand it on the
+     * sibling-directory fallback (or miss it outright) once a later full run
+     * tries to resolve the deletion.
+     *
+     * @param  list<string>  $cliArguments
+     */
+    #[Test]
+    #[DataProvider('narrowingCliArguments')]
+    public function it_leaves_a_deleted_source_file_alone_on_a_narrowed_run(array $cliArguments): void
+    {
+        $testId = self::class.'::it_leaves_a_deleted_source_file_alone_on_a_narrowed_run';
+        $this->seedGraphWithDeletableSource($testId);
+
+        $this->notify($this->resultsFor($testId), cliArguments: $cliArguments);
+
+        $this->assertContains('src/Gone.php', $this->persistedGraph()->allSourceFiles());
+    }
+
+    private function seedGraphWithDeletableSource(string $testId): void
+    {
+        $this->repo->write('src/Foo.php', "<?php\n");
+        $this->repo->write('src/Gone.php', "<?php\n");
+        $this->repo->write('tests/FooTest.php', "<?php\n");
+        $this->repo->commit('seed');
+
+        $graph = new Graph($this->repo->path());
+        $graph->link('tests/FooTest.php', 'src/Gone.php');
+        $graph->setFingerprint(Fingerprint::compute($this->repo->path()));
+        $graph->setRecordedAtSha('main', (new ChangedFiles($this->repo->path()))->currentSha());
+
+        $this->state()->write(Storage::GRAPH_KEY, (string) $graph->encode());
+
+        unlink($this->repo->path().'/src/Gone.php');
+    }
+
+    /**
      * Seeds a baseline, stamps it with a recorded sha and a tree snapshot, then
      * commits an unrelated edit after that — the point a full run's baseline
      * would legitimately move past, and a narrowed/aborted run's must not.
