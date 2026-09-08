@@ -93,7 +93,18 @@ final readonly class WriteGraph implements ExecutionFinishedSubscriber
         // advancing the baseline here would "bank" unverified edits as already-seen
         // (see the doc comment on isPartialRun()). Leave both pointers at whatever
         // the last authoritative run left them.
+        //
+        // pruneMissingSources() belongs in this same branch: its safety argument
+        // ("the run that first saw the deletion already re-ran the dependents")
+        // only holds when this run covered the whole tracked file set. On a
+        // filtered/aborted run, a test that solely depended on the now-deleted
+        // file may not have executed yet — pruning its edge here, before an
+        // authoritative run confirms the deletion, would strand that dependent
+        // on the sibling-directory fallback instead of the direct edge, and it
+        // could be missed entirely if nothing else in that directory is covered.
         if (! $this->isPartialRun()) {
+            $graph->pruneMissingSources();
+
             $graph->setRecordedAtSha($branch, $changedFiles->currentSha());
             $graph->setLastRunTree($branch, $changedFiles->snapshotTree(
                 array_values(array_unique([...$graph->allTestFiles(), ...$graph->allSourceFiles()])),

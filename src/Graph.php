@@ -664,6 +664,60 @@ final class Graph
     }
 
     /**
+     * Drop source files that no longer exist on disk, from the file table and
+     * from every edge that pointed at them.
+     *
+     * Edges only ever accumulate (see replaceEdges()), so without this a
+     * deleted source file stays linked to every test that once covered it.
+     * Its snapshot hash can never match again — the file is gone — so
+     * ChangedFiles::filterUnchangedSinceLastRun() reports it changed on
+     * every run, and each of those tests re-runs forever. A widely-used file
+     * (a cast, a base controller) pins most of the suite that way.
+     *
+     * Pruning is safe: the run that first saw the deletion already re-ran the
+     * dependents (the file was still linked when the affected set was
+     * computed), and a file that does not exist cannot be covered again.
+     */
+    public function pruneMissingSources(): void
+    {
+        $root = rtrim($this->projectRoot, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR;
+        $keep = [];
+
+        foreach ($this->files as $id => $rel) {
+            if (is_file($root.$rel)) {
+                $keep[$id] = $rel;
+            }
+        }
+
+        if (count($keep) === count($this->files)) {
+            return;
+        }
+
+        $remap = [];
+        $files = [];
+
+        foreach ($keep as $oldId => $rel) {
+            $remap[$oldId] = count($files);
+            $files[] = $rel;
+        }
+
+        foreach ($this->edges as $testRel => $ids) {
+            $mapped = [];
+
+            foreach ($ids as $id) {
+                if (isset($remap[$id])) {
+                    $mapped[] = $remap[$id];
+                }
+            }
+
+            $this->edges[$testRel] = $mapped;
+        }
+
+        $this->files = $files;
+        $this->fileIds = array_flip($files);
+    }
+
+    /**
      * Prune baseline result entries whose test files were just executed but
      * whose test IDs no longer exist in the codebase (e.g. the test method was
      * removed or renamed).
