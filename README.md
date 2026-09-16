@@ -72,6 +72,21 @@ abstract class TestCase extends \PHPUnit\Framework\TestCase
 }
 ```
 
+**Note:** if your `TestCase` declares `tearDown()`, you will need to guard any teardown
+that depends on `setUp()`. A skipped test never reaches `setUp()`, but PHPUnit still runs
+`tearDown()`. That teardown then errors, and the error replaces the skip:
+
+```php
+protected function tearDown(): void
+{
+    if (! $this->skippedByTia()) {
+        // ...teardown that depends on setUp()
+    }
+
+    parent::tearDown();
+}
+```
+
 To bypass TIA, you may pass an environment variable at runtime:
 
 ```sh
