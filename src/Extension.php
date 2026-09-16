@@ -48,6 +48,12 @@ final class Extension implements ExtensionContract
             return;
         }
 
+        if ($this->runningUnderParaTest()) {
+            fwrite(STDERR, "phpunit-tia: running under ParaTest — recording disabled to avoid a corrupted baseline.\n");
+
+            return;
+        }
+
         // Verified against PHPUnit 13.2.6 (docs/decisions.md): CodeCoverage::init()
         // calls CodeCoverageFilterRegistry::init($configuration) without forwarding
         // force=true when only an extension (not a <coverage><report> target)
@@ -93,6 +99,18 @@ final class Extension implements ExtensionContract
         }
 
         return false;
+    }
+
+    /**
+     * ParaTest unconditionally sets this in every worker's environment
+     * (brianium/paratest src/Options.php), regardless of --no-test-tokens or
+     * any other flag. Each worker is a separate PHPUnit process writing the
+     * same graph file, so recording here would silently discard most of the
+     * graph (issue #14) rather than fail loudly — refuse instead.
+     */
+    private function runningUnderParaTest(): bool
+    {
+        return getenv('PARATEST') !== false;
     }
 
     /**
