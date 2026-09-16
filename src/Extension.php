@@ -13,6 +13,7 @@ use JMac\Testing\PhpUnit\Tia\Subscribers\RecordTestMarkedIncomplete;
 use JMac\Testing\PhpUnit\Tia\Subscribers\RecordTestPassed;
 use JMac\Testing\PhpUnit\Tia\Subscribers\RecordTestPrepared;
 use JMac\Testing\PhpUnit\Tia\Subscribers\RecordTestSkipped;
+use JMac\Testing\PhpUnit\Tia\Subscribers\WarnCoversTargeting;
 use JMac\Testing\PhpUnit\Tia\Subscribers\WriteGraph;
 use PHPUnit\Runner\Extension\Extension as ExtensionContract;
 use PHPUnit\Runner\Extension\Facade;
@@ -77,6 +78,7 @@ final class Extension implements ExtensionContract
             new RecordTestConsideredRisky($results),
             new RecordTestFinished($results),
             new RecordExecutionAborted($scope),
+            new WarnCoversTargeting,
             new WriteGraph($projectRoot, $results, $storageMode, $scope),
         );
     }

@@ -103,6 +103,14 @@ PHPUNIT_TIA_FRESH=1 phpunit ...
 
 **Note:** TIA automatically disables recording when running in parallel (e.g. via ParaTest). Replaying from an established baseline still works fine in parallel.
 
+**Note:** if your suite uses `#[CoversClass]`, `#[CoversMethod]`, or the other `#[Covers*]` attributes, PHPUnit only collects coverage for the class or method each one names. TIA relies on that coverage to know what a test depends on, so it can wrongly skip a test whose collaborator changed. TIA warns on STDERR the first time this happens during a recording run — when you see that warning, record with the option below:
+
+```sh
+PHPUNIT_TIA_FRESH=1 phpunit --disable-coverage-targeting
+```
+
+You only need it when recording. Replaying a baseline, or running without a coverage driver, works fine without it.
+
 ### Debugging a test that won't skip
 If a test keeps running when you expect TIA to skip it, pass an environment variable to have TIA explain why on STDERR, one line per test that actually ran:
 
