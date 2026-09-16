@@ -98,18 +98,25 @@ While a baseline will be established automatically, you may pass an environment 
 ```sh
 PHPUNIT_TIA_FRESH=1 phpunit ...
 ```
+## Additional Notes
+There are a few additional notes to be aware of when using TIA.
 
-**Note:** running tests with the `--fail-on-skipped` or `--display-skipped` option will automatically bypass TIA's speed boost. You will need to drop these options to take full advantage of TIA.
+### `--fail-on-skipped` and `--display-skipped`
+Running tests with either option automatically bypasses TIA's speed boost. A skip TIA manufactures to represent an unaffected test would violate `--fail-on-skipped`, or surface as noise under `--display-skipped`, so TIA lets the test actually run instead. Drop these options to take full advantage of TIA.
 
-**Note:** TIA automatically disables recording when running in parallel (e.g. via ParaTest). Replaying from an established baseline still works fine in parallel.
+### Parallel runs (ParaTest)
+TIA automatically disables recording when running in parallel, since concurrent processes writing to the same graph would corrupt it. Replaying from an established baseline still works fine in parallel — only recording is blocked.
 
-**Note:** if your suite uses `#[CoversClass]`, `#[CoversMethod]`, or the other `#[Covers*]` attributes, PHPUnit only collects coverage for the class or method each one names. TIA relies on that coverage to know what a test depends on, so it can wrongly skip a test whose collaborator changed. TIA warns on STDERR the first time this happens during a recording run — when you see that warning, record with the option below:
+### Coverage targeting with `#[Covers*]` attributes
+If your suite uses `#[CoversClass]`, `#[CoversMethod]`, or the other `#[Covers*]` attributes, PHPUnit only collects coverage for the class or method each one names. TIA relies on that coverage to know what a test depends on, so it can wrongly skip a test whose collaborator changed.
+
+TIA warns on STDERR the first time this happens during a recording run — and any run without an established baseline counts as recording, not just an explicit `PHPUNIT_TIA_FRESH=1` rebuild. When you see that warning, add the option below to every run that records:
 
 ```sh
-PHPUNIT_TIA_FRESH=1 phpunit --disable-coverage-targeting
+phpunit --disable-coverage-targeting
 ```
 
-You only need it when recording. Replaying a baseline, or running without a coverage driver, works fine without it.
+Pair it with `PHPUNIT_TIA_FRESH=1` if you're deliberately rebuilding a baseline. You only need the flag when recording — replaying a baseline, or running without a coverage driver, works fine without it.
 
 ### Debugging a test that won't skip
 If a test keeps running when you expect TIA to skip it, pass an environment variable to have TIA explain why on STDERR, one line per test that actually ran:
