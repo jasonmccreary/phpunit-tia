@@ -20,6 +20,7 @@ use PHPUnit\Framework\TestStatus\TestStatus;
 use PHPUnit\TextUI\CliArguments\Builder as CliBuilder;
 use PHPUnit\TextUI\Configuration\Registry;
 use PHPUnit\TextUI\XmlConfiguration\DefaultConfiguration;
+use PHPUnit\TextUI\XmlConfiguration\Loader;
 use ReflectionClass;
 use ReflectionProperty;
 
@@ -248,8 +249,85 @@ final class WriteGraphTest extends TestCase
         return [
             '--filter' => [['phpunit', '--filter=Foo']],
             '--group' => [['phpunit', '--group=slow']],
+            '--exclude-group' => [['phpunit', '--exclude-group=slow']],
             '--testsuite' => [['phpunit', '--testsuite=unit']],
             'explicit path' => [['phpunit', 'tests/FooTest.php']],
+        ];
+    }
+
+    /**
+     * The groups and default test suite phpunit.xml selects are the suite the
+     * project always runs, not a narrowing: a run that leaves them as they are
+     * covers everything TIA tracks, so it must advance the baseline — otherwise a
+     * project that permanently excludes a group (slow, external...) never records
+     * one, and every run of it stays partial.
+     *
+     * @param  list<string>  $cliArguments
+     */
+    #[Test]
+    #[DataProvider('fullRunsOfTheXmlSelection')]
+    public function it_advances_the_baseline_on_a_full_run_of_the_xml_selection(string $xmlSelection, array $cliArguments): void
+    {
+        $configurationFile = $this->writePhpunitXml($xmlSelection);
+        [$seededSha, $testId] = $this->seedNarrowableBaseline(
+            self::class.'::it_advances_the_baseline_on_a_full_run_of_the_xml_selection',
+        );
+
+        $this->notify($this->resultsFor($testId), cliArguments: $cliArguments, configurationFile: $configurationFile);
+
+        $graph = $this->persistedGraph();
+
+        $this->assertNotSame($seededSha, $graph->recordedAtSha('main'));
+        $this->assertSame($this->repo->sha(), $graph->recordedAtSha('main'), 'The baseline sha must advance to HEAD.');
+    }
+
+    /**
+     * @return array<string, array{string, list<string>}>
+     */
+    public static function fullRunsOfTheXmlSelection(): array
+    {
+        return [
+            'excluded group' => ['<groups><exclude><group>slow</group></exclude></groups>', ['phpunit']],
+            'included group' => ['<groups><include><group>fast</group></include></groups>', ['phpunit']],
+            'default test suite' => ['', ['phpunit']],
+            'same excluded group on the command line' => [
+                '<groups><exclude><group>slow</group></exclude></groups>',
+                ['phpunit', '--exclude-group=slow'],
+            ],
+            'same test suite on the command line' => ['', ['phpunit', '--testsuite=unit']],
+        ];
+    }
+
+    /**
+     * A command-line selection *replaces* the XML one in PHPUnit's merged
+     * Configuration, so anything that differs from what phpunit.xml selects on
+     * its own is still a narrowing.
+     *
+     * @param  list<string>  $cliArguments
+     */
+    #[Test]
+    #[DataProvider('narrowingsOfTheXmlSelection')]
+    public function it_leaves_the_baseline_alone_when_the_command_line_narrows_the_xml_selection(array $cliArguments): void
+    {
+        $configurationFile = $this->writePhpunitXml('<groups><exclude><group>slow</group></exclude></groups>');
+        [$seededSha, $testId] = $this->seedNarrowableBaseline(
+            self::class.'::it_leaves_the_baseline_alone_when_the_command_line_narrows_the_xml_selection',
+        );
+
+        $this->notify($this->resultsFor($testId), cliArguments: $cliArguments, configurationFile: $configurationFile);
+
+        $this->assertBaselineWasLeftAlone($seededSha, $testId);
+    }
+
+    /**
+     * @return array<string, array{list<string>}>
+     */
+    public static function narrowingsOfTheXmlSelection(): array
+    {
+        return [
+            '--group' => [['phpunit', '--group=fast']],
+            'another --exclude-group' => [['phpunit', '--exclude-group=external']],
+            'another --testsuite' => [['phpunit', '--testsuite=integration']],
         ];
     }
 
@@ -358,6 +436,26 @@ final class WriteGraphTest extends TestCase
         $this->assertNotNull($graph->getResult('main', $testId), 'The test that actually ran must still be recorded.');
     }
 
+    /**
+     * Writes a phpunit.xml declaring two test suites, `unit` being the default,
+     * plus the given selection markup (a `<groups>` block, or nothing).
+     */
+    private function writePhpunitXml(string $selection): string
+    {
+        $this->repo->write('phpunit.xml', <<<XML
+            <?xml version="1.0" encoding="UTF-8"?>
+            <phpunit defaultTestSuite="unit">
+                <testsuites>
+                    <testsuite name="unit"><directory>tests</directory></testsuite>
+                    <testsuite name="integration"><directory>tests</directory></testsuite>
+                </testsuites>
+                {$selection}
+            </phpunit>
+            XML);
+
+        return $this->repo->path().'/phpunit.xml';
+    }
+
     private function resultsFor(string $testId): ResultCollector
     {
         $results = new ResultCollector;
@@ -409,16 +507,27 @@ final class WriteGraphTest extends TestCase
      * @param  list<string>  $cliArguments  Passed through fromParameters(); a leading
      *                                      'phpunit' avoids the parser swallowing a lone
      *                                      positional argument as the program name.
+     * @param  string|null  $configurationFile  A phpunit.xml to load instead of PHPUnit's
+     *                                          defaults, passed as `--configuration` too.
      */
-    private function notify(ResultCollector $results, ?RunScope $scope = null, array $cliArguments = ['phpunit']): void
-    {
+    private function notify(
+        ResultCollector $results,
+        ?RunScope $scope = null,
+        array $cliArguments = ['phpunit'],
+        ?string $configurationFile = null,
+    ): void {
         $event = (new ReflectionClass(ExecutionFinished::class))->newInstanceWithoutConstructor();
 
         $registry = new ReflectionProperty(Registry::class, 'instance');
         $original = $registry->getValue();
 
         try {
-            Registry::init((new CliBuilder)->fromParameters($cliArguments), DefaultConfiguration::create());
+            Registry::init(
+                (new CliBuilder)->fromParameters(
+                    $configurationFile === null ? $cliArguments : [...$cliArguments, '--configuration', $configurationFile],
+                ),
+                $configurationFile === null ? DefaultConfiguration::create() : (new Loader)->load($configurationFile),
+            );
 
             (new WriteGraph($this->repo->path(), $results, 'local', $scope ?? new RunScope))->notify($event);
         } finally {
