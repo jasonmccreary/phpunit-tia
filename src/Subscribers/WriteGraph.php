@@ -151,7 +151,7 @@ final readonly class WriteGraph implements ExecutionFinishedSubscriber
             || $configuration->hasTestIdFilter()
             || $configuration->hasTestIdFilterFile()
             || $this->groupsDifferFromXmlConfiguration($configuration)
-            || $configuration->includeTestSuites() !== $this->defaultTestSuites($configuration)
+            || ! self::sameSet($configuration->includeTestSuites(), $this->defaultTestSuites($configuration))
             || $configuration->excludeTestSuites() !== []
             || $configuration->hasCliArguments();
     }
