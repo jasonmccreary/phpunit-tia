@@ -280,6 +280,31 @@ final class TiaTest extends TestCase
         $this->assertNull(Tia::instance()->cachedStatusIfUnaffected($class, $method));
     }
 
+    /**
+     * Only a full run records the baseline sha, but narrowed runs still record
+     * results — so a graph can hold a cached pass without any sha. Diffing
+     * since() a null sha only sees uncommitted changes: a source change that
+     * was committed (a clean CI checkout, or simply `git commit` before the
+     * next run) would be invisible, and the cached pass replayed over it.
+     */
+    #[Test]
+    public function it_is_inactive_when_no_full_run_recorded_a_baseline_sha(): void
+    {
+        [$class, $method] = $this->recordPassingTest();
+        $this->forgetRecordedBaseline('main');
+
+        $this->repo->write('src/Foo.php', "<?php\n\nclass Foo\n{\n    public int \$x = 1;\n}\n");
+        $this->repo->commit('change Foo');
+
+        Tia::configure($this->repo->path(), 'local');
+
+        $this->assertNull(Tia::instance()->cachedStatusIfUnaffected($class, $method));
+        $this->assertSame(
+            'no full run has recorded a baseline commit yet — committed changes cannot be diffed',
+            Tia::instance()->debugReason($class, $method),
+        );
+    }
+
     #[Test]
     public function it_is_inactive_on_structural_fingerprint_drift(): void
     {
@@ -514,6 +539,23 @@ final class TiaTest extends TestCase
         $state->write(Storage::GRAPH_KEY, (string) $graph->encode());
 
         return [$class, $method, $sha ?? $recordedSha];
+    }
+
+    /**
+     * Leaves the branch's results in place but drops its sha and tree — the
+     * state a graph is in when only narrowed runs ever wrote to it.
+     */
+    private function forgetRecordedBaseline(string $branch): void
+    {
+        $state = new FileState(Storage::resolve($this->repo->path(), 'local'));
+        $graph = Graph::decode((string) $state->read(Storage::GRAPH_KEY), $this->repo->path());
+
+        $this->assertNotNull($graph);
+
+        $graph->setRecordedAtSha($branch, null);
+        $graph->setLastRunTree($branch, []);
+
+        $state->write(Storage::GRAPH_KEY, (string) $graph->encode());
     }
 
     /**

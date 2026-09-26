@@ -310,7 +310,18 @@ final class Tia
 
         $changedFiles = new ChangedFiles($projectRoot);
         $branch = $changedFiles->currentBranch() ?? 'default';
-        $changed = $changedFiles->since($graph->recordedAtSha($branch));
+        $recordedAtSha = $graph->recordedAtSha($branch);
+
+        // Only a full, unnarrowed run records the baseline sha (see
+        // WriteGraph::isPartialRun()), yet narrowed runs still record results.
+        // Without a sha, since() can only see uncommitted changes: every
+        // committed change would be invisible, and a cached pass would be
+        // replayed for a test whose code was changed and committed since.
+        if ($recordedAtSha === null) {
+            return self::inactive('no full run has recorded a baseline commit yet — committed changes cannot be diffed');
+        }
+
+        $changed = $changedFiles->since($recordedAtSha);
 
         if ($changed === null) {
             // Baseline sha isn't reachable from HEAD (rebase, force-push) —
