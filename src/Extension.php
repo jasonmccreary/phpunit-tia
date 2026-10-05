@@ -46,8 +46,16 @@ final class Extension implements ExtensionContract
 
         // Each ParaTest worker bootstraps its own PHPUnit, so the summary
         // would repeat once per worker.
-        if (! $this->runningUnderParaTest()) {
+        if (! ParallelRun::isWorker()) {
             fwrite(STDERR, 'phpunit-tia: '.$this->summary().".\n");
+        }
+
+        // The parent runs no tests of its own, so it merges the workers' shards
+        // whether or not it has a coverage driver; the workers need one.
+        if (ParallelRun::isParent()) {
+            ParallelRun::coordinate($projectRoot, $storageMode);
+
+            return;
         }
 
         if (! $this->coverageDriverAvailable()) {
@@ -56,10 +64,21 @@ final class Extension implements ExtensionContract
             return;
         }
 
-        if ($this->runningUnderParaTest()) {
-            fwrite(STDERR, "phpunit-tia: running under ParaTest — recording disabled to avoid a corrupted baseline.\n");
+        $parallelRun = null;
 
-            return;
+        if (ParallelRun::isWorker()) {
+            $parallelRun = ParallelRun::join($projectRoot, $storageMode);
+
+            if ($parallelRun === null) {
+                // Every worker lands here, so only the first one says so.
+                $token = getenv('TEST_TOKEN');
+
+                if ($token === false || $token === '1') {
+                    fwrite(STDERR, "phpunit-tia: running under ParaTest without a coordinating parent process, recording disabled to avoid a corrupted baseline.\n");
+                }
+
+                return;
+            }
         }
 
         // Verified against PHPUnit 13.2.6 (docs/decisions.md): CodeCoverage::init()
@@ -88,7 +107,7 @@ final class Extension implements ExtensionContract
             new RecordTestFinished($results),
             new RecordExecutionAborted($scope),
             new WarnCoversTargeting,
-            new WriteGraph($projectRoot, $results, $storageMode, $scope),
+            new WriteGraph($projectRoot, $results, $storageMode, $scope, $parallelRun),
         );
     }
 
@@ -126,18 +145,6 @@ final class Extension implements ExtensionContract
         }
 
         return false;
-    }
-
-    /**
-     * ParaTest unconditionally sets this in every worker's environment
-     * (brianium/paratest src/Options.php), regardless of --no-test-tokens or
-     * any other flag. Each worker is a separate PHPUnit process writing the
-     * same graph file, so recording here would silently discard most of the
-     * graph (issue #14) rather than fail loudly — refuse instead.
-     */
-    private function runningUnderParaTest(): bool
-    {
-        return getenv('PARATEST') !== false;
     }
 
     /**

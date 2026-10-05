@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace JMac\Testing\PhpUnit\Tia\Tests;
 
 use JMac\Testing\PhpUnit\Tia\Extension;
-use ReflectionMethod;
+use JMac\Testing\PhpUnit\Tia\ParallelRun;
 
 final class ExtensionTest extends TestCase
 {
@@ -16,16 +16,14 @@ final class ExtensionTest extends TestCase
 
     public function test_it_detects_paratest_via_its_worker_environment_variable(): void
     {
-        $method = new ReflectionMethod(Extension::class, 'runningUnderParaTest');
-
         putenv('PARATEST=1');
 
         try {
-            $this->assertTrue($method->invoke(new Extension));
+            $this->assertTrue(ParallelRun::isWorker());
         } finally {
             putenv('PARATEST');
         }
 
-        $this->assertFalse($method->invoke(new Extension));
+        $this->assertFalse(ParallelRun::isWorker());
     }
 }

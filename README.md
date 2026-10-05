@@ -105,7 +105,9 @@ There are a few additional notes to be aware of when using TIA.
 Running tests with either option automatically bypasses TIA's speed boost. A skip TIA manufactures to represent an unaffected test would violate `--fail-on-skipped`, or surface as noise under `--display-skipped`, so TIA lets the test actually run instead. Drop these options to take full advantage of TIA.
 
 ### Parallel runs (ParaTest)
-TIA automatically disables recording when running in parallel, since concurrent processes writing to the same graph would corrupt it. Replaying from an established baseline still works fine in parallel — only recording is blocked.
+TIA records and replays under ParaTest just as it does in a single process. It relies on how ParaTest 7 bootstraps its parent and workers, and is tested against that major version. Each worker writes what it recorded to a file of its own, and the ParaTest parent merges those files into the graph once every worker has exited.
+
+The baseline only advances when the parallel run was as complete as a single-process run has to be: every worker finished, none stopped mid-suite, and ParaTest did not stop handing out tests because of `--stop-on-failure`. Otherwise the merged results and edges are still kept, but the next run diffs against the previous baseline, and TIA says so on STDERR.
 
 ### Coverage targeting with `#[Covers*]` attributes
 If your suite uses `#[CoversClass]`, `#[CoversMethod]`, or the other `#[Covers*]` attributes, PHPUnit only collects coverage for the class or method each one names. TIA relies on that coverage to know what a test depends on, so it can wrongly skip a test whose collaborator changed.

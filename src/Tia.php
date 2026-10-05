@@ -98,7 +98,8 @@ final class Tia
     /**
      * Extension::bootstrap() hands over the collector of a run that records,
      * so link() has somewhere to put its edges. Null, the default, when this
-     * run records nothing: no coverage driver, ParaTest, or TIA disabled.
+     * run records nothing: no coverage driver, a ParaTest worker without a coordinating
+     * parent, or TIA disabled.
      */
     public static function recordInto(?ResultCollector $results): void
     {
