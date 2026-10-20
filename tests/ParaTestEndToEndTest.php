@@ -111,6 +111,41 @@ final class ParaTestEndToEndTest extends TestCase
         $this->assertStringContainsString('phpunit-tia: 0 of 4 test files affected.', $replay->getErrorOutput());
     }
 
+    /**
+     * A test that commits a change to another test's source while the run is
+     * going. Whether or not that test already ran, the next run must see the
+     * change, so the baseline cannot be taken from the end of the run.
+     */
+    #[Test]
+    public function it_treats_a_commit_made_while_the_run_ran_as_a_change_for_the_next_run(): void
+    {
+        $this->project->write('tests/ZetaTest.php', <<<'PHP'
+            <?php
+
+            final class ZetaTest extends \PHPUnit\Framework\TestCase
+            {
+                public function test_it_changes_source_mid_run(): void
+                {
+                    $file = dirname(__DIR__).'/src/SubjectAlphaTest.php';
+
+                    file_put_contents($file, str_replace('return 1;', 'return 2;', (string) file_get_contents($file)));
+                    exec('git -C '.escapeshellarg(dirname(__DIR__)).' add . && git -C '.escapeshellarg(dirname(__DIR__)).' commit -q -m "edit while running"');
+
+                    $this->assertTrue(true);
+                }
+            }
+            PHP);
+        $this->project->commit('add ZetaTest');
+
+        $recording = $this->paratest();
+        $this->assertTrue($recording->isSuccessful(), $recording->getOutput().$recording->getErrorOutput());
+
+        $next = $this->paratest();
+
+        $this->assertStringNotContainsString('phpunit-tia: 0 of', $next->getErrorOutput());
+        $this->assertMatchesRegularExpression('/phpunit-tia: [1-9]\d* of \d+ test files affected/', $next->getErrorOutput());
+    }
+
     private function paratest(): Process
     {
         $process = new Process(

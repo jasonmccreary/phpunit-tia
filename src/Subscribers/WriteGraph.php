@@ -9,6 +9,7 @@ use JMac\Testing\PhpUnit\Tia\ParallelRun;
 use JMac\Testing\PhpUnit\Tia\Recorder;
 use JMac\Testing\PhpUnit\Tia\ResultCollector;
 use JMac\Testing\PhpUnit\Tia\RunScope;
+use JMac\Testing\PhpUnit\Tia\RunStart;
 use JMac\Testing\PhpUnit\Tia\SuiteSelection;
 use PHPUnit\Event\TestRunner\ExecutionFinished;
 use PHPUnit\Event\TestRunner\ExecutionFinishedSubscriber;
@@ -33,6 +34,7 @@ final readonly class WriteGraph implements ExecutionFinishedSubscriber
         private string $storageMode,
         private RunScope $scope,
         private ?ParallelRun $parallelRun = null,
+        private ?RunStart $start = null,
     ) {}
 
     public function notify(ExecutionFinished $event): void
@@ -59,7 +61,7 @@ final readonly class WriteGraph implements ExecutionFinishedSubscriber
             return;
         }
 
-        (new GraphWriter($this->projectRoot, $this->storageMode))->write($edges, $results, ! $this->isPartialRun());
+        (new GraphWriter($this->projectRoot, $this->storageMode, $this->start))->write($edges, $results, ! $this->isPartialRun());
     }
 
     /**

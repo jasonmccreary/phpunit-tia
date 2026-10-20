@@ -184,3 +184,24 @@ behaviour (kept, kept-with-data-set, dropped-removed-method,
 dropped-unparseable-ID) and `WriteGraphTest` for the write path that produces
 the partial-run condition in the first place. All four `testIsStillDefined()`
 branches are exercised.
+
+---
+
+## Why the baseline is taken from the start of the run
+
+A full run used to stamp the baseline commit and the last-run tree when it
+ended. Tests execute against the code as it is while they run, so a commit or
+an edit made during the run (an editor, another terminal, a second agent) was
+banked as already tested, and the next run replayed passes for code those
+tests never saw.
+
+`RunStart` snapshots the branch, HEAD and the tree when the run starts, and
+`GraphWriter` stamps an authoritative run from it. The snapshot covers the
+stored graph's files plus the working tree's changes at that moment. A file
+that joins the graph during the run is absent from the snapshot, which the
+next run reads as changed: it costs a re-run, never a stale pass.
+
+Only a full run snapshots, since a narrowed run never records a baseline. Under
+ParaTest only the parent does, because only the parent writes the merged graph.
+If git can't answer, the writer reads the baseline when the run ends, as it
+did before.
