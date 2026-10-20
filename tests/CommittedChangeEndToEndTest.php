@@ -26,6 +26,7 @@ final class CommittedChangeEndToEndTest extends TestCase
         $this->project = TempGitRepository::create();
         $this->project->run(['git', 'config', 'core.quotePath', 'true']);
         $this->project->run(['git', 'config', 'diff.renames', 'true']);
+        // Loads src/ one level deep, enough for the paths these tests use.
         $this->project->write('bootstrap.php', "<?php\n\nrequire ".var_export(dirname(__DIR__).'/vendor/autoload.php', true).";\n\nforeach ([...glob(__DIR__.'/src/*.php'), ...glob(__DIR__.'/src/*/*.php')] as \$file) {\n    require_once \$file;\n}\n");
         $this->project->write('.gitignore', ".phpunit-tia/\n");
         $this->project->write('phpunit.xml', <<<'XML'
