@@ -19,7 +19,7 @@ use Symfony\Component\Process\Process;
  */
 final class Fingerprint
 {
-    private const int SCHEMA_VERSION = 1;
+    private const int SCHEMA_VERSION = 2;
 
     /**
      * @return array{structural: array<string, int|string|null>, environmental: array<string, int|string|null>}
