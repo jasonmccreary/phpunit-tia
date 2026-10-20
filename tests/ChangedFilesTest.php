@@ -132,6 +132,34 @@ final class ChangedFilesTest extends TestCase
     }
 
     #[Test]
+    public function filter_unchanged_since_last_run_excludes_a_file_absent_then_and_now(): void
+    {
+        $this->repo->write('src/Foo.php', "<?php\nfinal class Foo {}\n");
+        $this->repo->commit('add Foo');
+
+        $remaining = $this->changedFiles->filterUnchangedSinceLastRun(
+            ['src/Foo.php'],
+            [
+                'src/Foo.php' => ContentHash::of($this->repo->path().'/src/Foo.php'),
+                'src/Gone.php' => '',
+            ],
+        );
+
+        $this->assertSame([], $remaining);
+    }
+
+    #[Test]
+    public function filter_unchanged_since_last_run_keeps_a_file_absent_then_and_present_now(): void
+    {
+        $this->repo->write('src/Foo.php', "<?php\nfinal class Foo {}\n");
+        $this->repo->commit('add Foo');
+
+        $remaining = $this->changedFiles->filterUnchangedSinceLastRun([], ['src/Foo.php' => '']);
+
+        $this->assertSame(['src/Foo.php'], $remaining);
+    }
+
+    #[Test]
     public function since_translates_paths_when_project_root_is_a_repo_subdirectory(): void
     {
         // A monorepo-style install (or this package's own fixture-app/
