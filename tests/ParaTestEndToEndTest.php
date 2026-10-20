@@ -146,10 +146,38 @@ final class ParaTestEndToEndTest extends TestCase
         $this->assertMatchesRegularExpression('/phpunit-tia: [1-9]\d* of \d+ test files affected/', $next->getErrorOutput());
     }
 
-    private function paratest(): Process
+    /**
+     * A narrowed run keeps the baseline, yet the parent merges what it ran
+     * for the affected tests: a pass earned on the fix must not replay once
+     * the fix is reverted.
+     */
+    #[Test]
+    public function it_does_not_replay_a_narrowed_runs_pass_once_its_change_is_reverted(): void
+    {
+        $source = 'src/SubjectAlphaTest.php';
+        $contents = (string) file_get_contents($this->project->path().'/'.$source);
+
+        $this->project->write($source, str_replace('return 1;', 'return 2;', $contents));
+        $this->project->commit('break alpha');
+
+        $baseline = $this->paratest();
+        $this->assertFalse($baseline->isSuccessful(), $baseline->getOutput());
+
+        $this->project->write($source, $contents);
+
+        $fixed = $this->paratest('--filter', 'AlphaTest');
+        $this->assertTrue($fixed->isSuccessful(), $fixed->getOutput().$fixed->getErrorOutput());
+
+        $this->project->run(['git', 'checkout', '--', $source]);
+
+        $reverted = $this->paratest();
+        $this->assertStringContainsString('(+1 without a cached pass)', $reverted->getErrorOutput(), 'The baseline failure must still be on record, not the pass the narrowed run earned on the fix.');
+    }
+
+    private function paratest(string ...$arguments): Process
     {
         $process = new Process(
-            [dirname(__DIR__).'/vendor/bin/paratest', '--processes=2', '--no-progress'],
+            [dirname(__DIR__).'/vendor/bin/paratest', '--processes=2', '--no-progress', ...$arguments],
             $this->project->path(),
         );
         $process->setTimeout(120);
