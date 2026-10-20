@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace JMac\Testing\PhpUnit\Tia;
 
 use PHPUnit\Framework\TestStatus\TestStatus;
+use ReflectionClass;
 use ReflectionMethod;
 use Throwable;
 
@@ -43,10 +44,14 @@ final class Tia
     /** @var array<string, string> project-relative test file => why it was marked affected (§ diagnostics) */
     private array $affectedReasons;
 
+    /** @var array<string, true> project-relative path => changed since the last run */
+    private array $changedFiles;
+
     /**
      * @param  array<string, true>  $affectedTestFiles
      * @param  array<string, string>  $affectedReasons
      * @param  array<string, int>  $affectedPerChangedFile
+     * @param  array<string, true>  $changedFiles
      */
     private function __construct(
         private readonly bool $active,
@@ -57,9 +62,11 @@ final class Tia
         private readonly ?string $inactiveReason = null,
         private readonly array $affectedPerChangedFile = [],
         private readonly int $rerunWithoutCachedPass = 0,
+        array $changedFiles = [],
     ) {
         $this->affectedTestFiles = $affectedTestFiles;
         $this->affectedReasons = $affectedReasons;
+        $this->changedFiles = $changedFiles;
     }
 
     /**
@@ -206,6 +213,10 @@ final class Tia
             return null;
         }
 
+        if ($this->affectedInheritingFile($class, self::methodNameOnly($method)) !== null) {
+            return null;
+        }
+
         $status = $this->graph->getResult($this->branch, $class.'::'.$method);
 
         return $status !== null && $status->isSuccess() ? $status : null;
@@ -322,6 +333,12 @@ final class Tia
             return $this->affectedReasons[$relative] ?? 'marked affected';
         }
 
+        $inheriting = $this->affectedInheritingFile($class, self::methodNameOnly($method));
+
+        if ($inheriting !== null) {
+            return ($this->affectedReasons[$inheriting] ?? 'file changed')." ({$inheriting} inherits this test)";
+        }
+
         $status = $this->graph->getResult($this->branch, $class.'::'.$method);
 
         if ($status === null) {
@@ -333,6 +350,72 @@ final class Tia
         }
 
         return "a skip would violate this run's fail-on-skipped/display-skipped (or similar) policy";
+    }
+
+    /**
+     * An inherited test method's edges sit under the file that declares it,
+     * as PHPUnit records them, but the classes between that one and the test
+     * class supply the rest of its behaviour: an overridden hook, a data
+     * provider, a property. The traits those classes use, and the declaring
+     * class's own, supply behaviour the same way. The first of their files that
+     * changed, so the test runs; null when none did. Changed, not affected: a
+     * helper class or trait seldom matches the test suffix, so the affected set
+     * never holds it.
+     */
+    private function affectedInheritingFile(string $class, string $method): ?string
+    {
+        try {
+            $declaringClass = (new ReflectionMethod($class, $method))->getDeclaringClass()->getName();
+            $reflection = new ReflectionClass($class);
+        } catch (Throwable) {
+            return null;
+        }
+
+        while ($reflection !== false) {
+            $isDeclaring = $reflection->getName() === $declaringClass;
+
+            // The declaring file itself is checked by the caller.
+            $files = $isDeclaring ? [] : [$reflection->getFileName()];
+
+            foreach ($this->traitFiles($reflection) as $file) {
+                $files[] = $file;
+            }
+
+            foreach ($files as $file) {
+                $relative = $file === false ? null : $this->graph?->relativePath($file);
+
+                if ($relative !== null && isset($this->changedFiles[$relative])) {
+                    return $relative;
+                }
+            }
+
+            if ($isDeclaring) {
+                break;
+            }
+
+            $reflection = $reflection->getParentClass();
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  ReflectionClass<object>  $class
+     * @return list<string|false>
+     */
+    private function traitFiles(ReflectionClass $class): array
+    {
+        $files = [];
+
+        foreach ($class->getTraits() as $trait) {
+            $files[] = $trait->getFileName();
+
+            foreach ($this->traitFiles($trait) as $file) {
+                $files[] = $file;
+            }
+        }
+
+        return $files;
     }
 
     /**
@@ -439,7 +522,17 @@ final class Tia
         $affected = $graph->affected($changed, $reasons, $affectedPerChangedFile);
         $rerun = count(array_diff($graph->testFilesWithoutCachedPass($branch), $affected));
 
-        return new self(true, $graph, $branch, array_fill_keys($affected, true), $reasons, null, $affectedPerChangedFile ?? [], $rerun);
+        $changedRelative = [];
+
+        foreach ($changed as $file) {
+            $relative = $graph->relativePath($file);
+
+            if ($relative !== null) {
+                $changedRelative[$relative] = true;
+            }
+        }
+
+        return new self(true, $graph, $branch, array_fill_keys($affected, true), $reasons, null, $affectedPerChangedFile ?? [], $rerun, $changedRelative);
     }
 
     private static function inactive(?string $reason = null): self
