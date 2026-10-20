@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace JMac\Testing\PhpUnit\Tia;
 
 use PHPUnit\Framework\TestStatus\TestStatus;
+use ReflectionClass;
 use ReflectionMethod;
 use Throwable;
 
@@ -206,6 +207,10 @@ final class Tia
             return null;
         }
 
+        if ($this->affectedInheritingFile($class, self::methodNameOnly($method)) !== null) {
+            return null;
+        }
+
         $status = $this->graph->getResult($this->branch, $class.'::'.$method);
 
         return $status !== null && $status->isSuccess() ? $status : null;
@@ -322,6 +327,12 @@ final class Tia
             return $this->affectedReasons[$relative] ?? 'marked affected';
         }
 
+        $inheriting = $this->affectedInheritingFile($class, self::methodNameOnly($method));
+
+        if ($inheriting !== null) {
+            return ($this->affectedReasons[$inheriting] ?? 'marked affected')." ({$inheriting} inherits this test)";
+        }
+
         $status = $this->graph->getResult($this->branch, $class.'::'.$method);
 
         if ($status === null) {
@@ -333,6 +344,36 @@ final class Tia
         }
 
         return "a skip would violate this run's fail-on-skipped/display-skipped (or similar) policy";
+    }
+
+    /**
+     * An inherited test method's edges sit under the file that declares it,
+     * as PHPUnit records them, but the classes between that one and the test
+     * class supply the rest of its behaviour: an overridden hook, a data
+     * provider, a property. The first of their files the changes affect, so
+     * the test runs; null when none is.
+     */
+    private function affectedInheritingFile(string $class, string $method): ?string
+    {
+        try {
+            $declaringClass = (new ReflectionMethod($class, $method))->getDeclaringClass()->getName();
+            $reflection = new ReflectionClass($class);
+        } catch (Throwable) {
+            return null;
+        }
+
+        while ($reflection !== false && $reflection->getName() !== $declaringClass) {
+            $file = $reflection->getFileName();
+            $relative = $file === false ? null : $this->graph?->relativePath($file);
+
+            if ($relative !== null && isset($this->affectedTestFiles[$relative])) {
+                return $relative;
+            }
+
+            $reflection = $reflection->getParentClass();
+        }
+
+        return null;
     }
 
     /**
