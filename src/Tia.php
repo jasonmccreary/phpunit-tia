@@ -246,6 +246,17 @@ final class Tia
         return $this->graph?->recordedAtSha($this->branch);
     }
 
+    /**
+     * The test files the changes affect, project-relative; empty while TIA is
+     * inactive.
+     *
+     * @return list<string>
+     */
+    public function affectedTestFiles(): array
+    {
+        return $this->isActive() ? array_map(strval(...), array_keys($this->affectedTestFiles)) : [];
+    }
+
     /** Whether this run replays cached passes at all — false for every inactive reason summary() reports. */
     public function isActive(): bool
     {

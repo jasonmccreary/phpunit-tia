@@ -184,7 +184,7 @@ final readonly class ParallelRun
                 : "phpunit-tia: a ParaTest worker stopped early or did not finish, baseline not advanced for this run.\n";
 
             if ($shards > 0) {
-                $writer->write($edges, $results, $notice === null && ! SuiteSelection::isNarrowed());
+                $writer->write($edges, $results, $notice === null && ! SuiteSelection::isNarrowed(), Tia::instance()->affectedTestFiles());
             }
 
             return $notice;
