@@ -11,6 +11,7 @@ use JMac\Testing\PhpUnit\Tia\ResultCollector;
 use JMac\Testing\PhpUnit\Tia\RunScope;
 use JMac\Testing\PhpUnit\Tia\RunStart;
 use JMac\Testing\PhpUnit\Tia\SuiteSelection;
+use JMac\Testing\PhpUnit\Tia\Tia;
 use PHPUnit\Event\TestRunner\ExecutionFinished;
 use PHPUnit\Event\TestRunner\ExecutionFinishedSubscriber;
 use PHPUnit\Runner\CodeCoverage;
@@ -61,7 +62,7 @@ final readonly class WriteGraph implements ExecutionFinishedSubscriber
             return;
         }
 
-        (new GraphWriter($this->projectRoot, $this->storageMode, $this->start))->write($edges, $results, ! $this->isPartialRun());
+        (new GraphWriter($this->projectRoot, $this->storageMode, $this->start))->write($edges, $results, ! $this->isPartialRun(), Tia::instance()->affectedTestFiles());
     }
 
     /**

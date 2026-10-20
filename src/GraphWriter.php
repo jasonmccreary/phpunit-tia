@@ -27,8 +27,9 @@ final readonly class GraphWriter
      * @param  array<string, list<string>>  $edges  test file (absolute) → source files (absolute), see Recorder::invert()
      * @param  array<string, array{status: int, message: string, time: float, assertions: int, file?: string}>  $results
      * @param  bool  $authoritative  whether this run covered the whole configured suite and finished it
+     * @param  list<string>  $affectedTestFiles  project-relative test files the changes affected when the run started, see Tia::affectedTestFiles()
      */
-    public function write(array $edges, array $results, bool $authoritative): void
+    public function write(array $edges, array $results, bool $authoritative, array $affectedTestFiles = []): void
     {
         $state = new FileState(Storage::resolve($this->projectRoot, $this->storageMode));
         $currentFingerprint = Fingerprint::compute($this->projectRoot);
@@ -37,6 +38,17 @@ final readonly class GraphWriter
         $branch = $this->start?->branch ?? $changedFiles->currentBranch() ?? 'default';
 
         $graph = $this->loadGraph($state, $currentFingerprint, $branch);
+
+        // A narrowed or aborted run ran its affected test files against code
+        // that differs from the baseline, and keeps the baseline where it was.
+        // Their results and edges describe that change only: once the code is
+        // back to the baseline (a reverted fix, a stash), a pass would replay
+        // where the baseline code fails, and an edge the change dropped would
+        // hide a dependency. Leave them out; while the change stays, those
+        // files stay affected and run anyway.
+        if (! $authoritative && $affectedTestFiles !== []) {
+            [$edges, $results] = $this->withoutAffected($graph, $edges, $results, $affectedTestFiles);
+        }
 
         $graph->replaceEdges($edges);
 
@@ -101,6 +113,30 @@ final readonly class GraphWriter
         if ($encoded !== null) {
             $state->write(Storage::GRAPH_KEY, $encoded);
         }
+    }
+
+    /**
+     * @param  array<string, list<string>>  $edges
+     * @param  array<string, array{status: int, message: string, time: float, assertions: int, file?: string}>  $results
+     * @param  list<string>  $affectedTestFiles
+     * @return array{0: array<string, list<string>>, 1: array<string, array{status: int, message: string, time: float, assertions: int, file?: string}>}
+     */
+    private function withoutAffected(Graph $graph, array $edges, array $results, array $affectedTestFiles): array
+    {
+        $affected = array_fill_keys($affectedTestFiles, true);
+
+        $edges = array_filter(
+            $edges,
+            static fn (string $testFile): bool => ! isset($affected[$graph->relativePath($testFile) ?? '']),
+            ARRAY_FILTER_USE_KEY,
+        );
+
+        $results = array_filter(
+            $results,
+            static fn (array $result): bool => ! isset($result['file']) || ! isset($affected[$graph->relativePath($result['file']) ?? '']),
+        );
+
+        return [$edges, $results];
     }
 
     /**
