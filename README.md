@@ -128,7 +128,7 @@ Every run starts with one line on STDERR saying why TIA is inactive, or how many
 
 ```
 phpunit-tia: 12 of 165 test files affected (+1 without a cached pass).
-phpunit-tia: inactive: composer.lock/phpunit.xml changed since the stored graph was written.
+phpunit-tia: inactive: composer.lock, phpunit.xml or the graph schema changed since the stored graph was written.
 ```
 
 With `PHPUNIT_TIA_DEBUG=1` (see below), the line also lists the changed files that affect the most test files:

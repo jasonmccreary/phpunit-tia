@@ -495,7 +495,7 @@ final class Tia
         $current = Fingerprint::compute($projectRoot);
 
         if (! Fingerprint::structuralMatches($graph->fingerprint(), $current)) {
-            return self::inactive('composer.lock/phpunit.xml changed since the stored graph was written');
+            return self::inactive('composer.lock, phpunit.xml or the graph schema changed since the stored graph was written');
         }
 
         if (Fingerprint::environmentalDrift($graph->fingerprint(), $current) !== []) {
