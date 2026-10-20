@@ -228,6 +228,24 @@ final class ChangedFilesTest extends TestCase
     }
 
     #[Test]
+    public function since_sha_reads_repo_root_paths_when_diff_relative_is_configured(): void
+    {
+        // With diff.relative=true, git diff prints paths relative to the cwd
+        // instead of the top level, so 'pkg/src/Foo.php' would come back as
+        // 'src/Foo.php' and toProjectRelative() would drop it.
+        $this->repo->write('pkg/src/Foo.php', "<?php\nfunction foo() {\n    return 1;\n}\n");
+        $baseline = $this->repo->commit('add pkg/Foo');
+
+        $this->repo->write('pkg/src/Foo.php', "<?php\nfunction foo() {\n    return 2;\n}\n");
+        $this->repo->commit('change pkg/Foo');
+        $this->repo->run(['git', 'config', 'diff.relative', 'true']);
+
+        $changedFiles = new ChangedFiles($this->repo->path().'/pkg');
+
+        $this->assertSame(['src/Foo.php'], $changedFiles->since($baseline));
+    }
+
+    #[Test]
     public function since_ignores_gitignored_files_when_project_root_is_a_repo_subdirectory(): void
     {
         $this->repo->write('pkg/.gitignore', "ignored.php\n");

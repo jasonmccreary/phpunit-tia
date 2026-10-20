@@ -312,8 +312,12 @@ final class ChangedFiles
      */
     private function diffSinceSha(string $sha): array
     {
+        // A user's diff.relative=true would print paths relative to the cwd
+        // and drop changes outside it, breaking toProjectRelative()'s
+        // repo-root-relative assumption. -c rather than --no-relative, which
+        // git before 2.28 rejects.
         $process = new Process(
-            ['git', 'diff', '--name-only', '-z', '--no-renames', $sha.'..HEAD'],
+            ['git', '-c', 'diff.relative=false', 'diff', '--name-only', '-z', '--no-renames', $sha.'..HEAD'],
             $this->projectRoot,
         );
         $process->run();
