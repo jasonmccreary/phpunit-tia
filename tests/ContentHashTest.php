@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace JMac\Testing\PhpUnit\Tia\Tests;
 
 use JMac\Testing\PhpUnit\Tia\ContentHash;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
 final class ContentHashTest extends TestCase
@@ -71,6 +72,28 @@ final class ContentHashTest extends TestCase
         $b = ContentHash::ofContent('b.php', "<?php\nfunction foo() {\n    return 2;\n}\n");
 
         $this->assertNotSame($a, $b);
+    }
+
+    #[Test]
+    #[DataProvider('tokenBoundaryChanges')]
+    public function a_change_that_only_moves_token_boundaries_produces_a_different_hash(string $before, string $after): void
+    {
+        $a = ContentHash::ofContent('a.php', "<?php\n{$before}\n");
+        $b = ContentHash::ofContent('b.php', "<?php\n{$after}\n");
+
+        $this->assertNotSame($a, $b);
+    }
+
+    /**
+     * @return array<string, array{string, string}>
+     */
+    public static function tokenBoundaryChanges(): array
+    {
+        return [
+            'concatenation to float' => ['return 1 . 2;', 'return 1.2;'],
+            'double negation to decrement' => ['$x = - -$y;', '$x = --$y;'],
+            'new to constant' => ['return new Foo;', 'return newFoo;'],
+        ];
     }
 
     #[Test]

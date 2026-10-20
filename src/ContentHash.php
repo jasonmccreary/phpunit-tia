@@ -50,10 +50,12 @@ final class ContentHash
                     continue;
                 }
 
-                $normalised .= $token[1];
-            } else {
-                $normalised .= $token;
+                $token = $token[1];
             }
+
+            // Length-prefixed so token boundaries survive the dropped
+            // whitespace: `1 . 2` (string "12") and `1.2` (float) differ.
+            $normalised .= strlen($token).':'.$token;
         }
 
         return hash('xxh128', $normalised);
