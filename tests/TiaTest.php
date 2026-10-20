@@ -157,6 +157,50 @@ final class TiaTest extends TestCase
     }
 
     #[Test]
+    #[DataProvider('inheritanceChainFiles')]
+    public function it_reruns_an_inherited_test_when_a_file_in_its_chain_changes(string $changed): void
+    {
+        [$class, $method] = $this->recordInheritedTest();
+
+        $this->repo->write($changed, file_get_contents($this->repo->path().'/'.$changed)."\nconst TIA_CHANGED = 1;\n");
+
+        Tia::configure($this->repo->path(), 'local');
+
+        $this->assertNull(Tia::instance()->cachedStatusIfUnaffected($class, $method));
+        $this->assertStringEndsWith(" ({$changed} inherits this test)", Tia::instance()->debugReason($class, $method));
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function inheritanceChainFiles(): array
+    {
+        return [
+            'concrete class' => ['tests/Chain/ConcreteTest.php'],
+            'intermediate class' => ['tests/Chain/MiddleCase.php'],
+            'trait of the concrete class' => ['tests/Chain/ConcreteTrait.php'],
+            'trait of the intermediate class' => ['tests/Chain/MiddleTrait.php'],
+            'trait nested in a trait' => ['tests/Chain/NestedTrait.php'],
+            'trait of the declaring class' => ['tests/Chain/DeclaringTrait.php'],
+        ];
+    }
+
+    #[Test]
+    public function it_replays_an_inherited_test_when_nothing_in_its_chain_changed(): void
+    {
+        [$class, $method] = $this->recordInheritedTest();
+
+        $this->repo->write('tests/Chain/Unrelated.php', "<?php\n");
+
+        Tia::configure($this->repo->path(), 'local');
+
+        $status = Tia::instance()->cachedStatusIfUnaffected($class, $method);
+
+        $this->assertNotNull($status);
+        $this->assertTrue($status->isSuccess());
+    }
+
+    #[Test]
     public function it_uses_a_configured_fallback_branch_for_replay(): void
     {
         [$class, $method, $sha] = $this->recordPassingTest(baselineBranch: 'develop');
@@ -707,6 +751,51 @@ final class TiaTest extends TestCase
             'skipped' => [TestStatus::skipped('')],
             'failure' => [TestStatus::failure('boom')],
         ];
+    }
+
+    /**
+     * A concrete test class two levels below the abstract class that declares
+     * the test, with a trait at every level and one nested in another trait.
+     * The edge sits under the declaring file, as PHPUnit records it.
+     *
+     * @return array{0: string, 1: string} [className, methodName]
+     */
+    private function recordInheritedTest(): array
+    {
+        $id = bin2hex(random_bytes(6));
+        $method = 'test_it_works';
+        $files = [
+            'src/Foo.php' => "<?php\n\nclass Foo\n{\n}\n",
+            'tests/Chain/NestedTrait.php' => "<?php\n\ntrait TiaNested{$id}\n{\n}\n",
+            'tests/Chain/ConcreteTrait.php' => "<?php\n\ntrait TiaConcreteTrait{$id}\n{\n    use TiaNested{$id};\n}\n",
+            'tests/Chain/MiddleTrait.php' => "<?php\n\ntrait TiaMiddleTrait{$id}\n{\n}\n",
+            'tests/Chain/DeclaringTrait.php' => "<?php\n\ntrait TiaDeclaringTrait{$id}\n{\n}\n",
+            'tests/Chain/DeclaringCase.php' => "<?php\n\nabstract class TiaDeclaring{$id}\n{\n    use TiaDeclaringTrait{$id};\n\n    public function {$method}(): void {}\n}\n",
+            'tests/Chain/MiddleCase.php' => "<?php\n\nabstract class TiaMiddle{$id} extends TiaDeclaring{$id}\n{\n    use TiaMiddleTrait{$id};\n}\n",
+            'tests/Chain/ConcreteTest.php' => "<?php\n\nclass TiaConcrete{$id} extends TiaMiddle{$id}\n{\n    use TiaConcreteTrait{$id};\n}\n",
+            'tests/Chain/Unrelated.php' => "<?php\n",
+        ];
+
+        foreach ($files as $path => $contents) {
+            $this->repo->write($path, $contents);
+        }
+
+        foreach (['NestedTrait', 'ConcreteTrait', 'MiddleTrait', 'DeclaringTrait', 'DeclaringCase', 'MiddleCase', 'ConcreteTest'] as $file) {
+            require $this->repo->path().'/tests/Chain/'.$file.'.php';
+        }
+
+        $sha = $this->repo->commit('add an inheritance chain');
+
+        $graph = new Graph($this->repo->path());
+        $graph->link($this->repo->path().'/tests/Chain/DeclaringCase.php', $this->repo->path().'/src/Foo.php');
+        $graph->setResult('main', "TiaConcrete{$id}::{$method}", TestStatus::success()->asInt(), '', 0.01, 1, 'tests/Chain/DeclaringCase.php');
+        $graph->setFingerprint(Fingerprint::compute($this->repo->path()));
+        $graph->setRecordedAtSha('main', $sha);
+        $graph->setLastRunTree('main', (new ChangedFiles($this->repo->path()))->snapshotTree(array_keys($files)));
+
+        (new FileState(Storage::resolve($this->repo->path(), 'local')))->write(Storage::GRAPH_KEY, (string) $graph->encode());
+
+        return ["TiaConcrete{$id}", $method];
     }
 
     /**
