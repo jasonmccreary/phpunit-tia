@@ -205,3 +205,23 @@ Only a full run snapshots, since a narrowed run never records a baseline. Under
 ParaTest only the parent does, because only the parent writes the merged graph.
 If git can't answer, the writer reads the baseline when the run ends, as it
 did before.
+
+---
+
+## Why a broken `setUp()` still names the test
+
+`Test\Prepared` never fires when `setUp()` (or another before-test method)
+throws or fails an assertion, so `ResultCollector` had no current test and
+dropped the `Errored` or `Failed` that followed. The cached pass survived and
+the baseline advanced past the broken code: red once, then green.
+
+`RecordTestPreparationErrored` and `RecordTestPreparationFailed` name the test
+on `PreparationErrored` and `PreparationFailed`, so the outcome is recorded like
+any other. `TestCase::runBare()` emits those only from its generic
+`AssertionError` and `Throwable` catches, never from the `SkippedTest` catch, so
+TIA's own `markTestSkipped()` in `setUp()` is unaffected and a replayed test
+keeps its cached pass. A skip or incomplete raised by a test's own `setUp()`
+takes the same path and is still not recorded.
+
+Coverage is `SetUpOutcomeEndToEndTest`, which runs the real PHPUnit binary
+against a scratch project.
