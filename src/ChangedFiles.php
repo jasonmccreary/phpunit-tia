@@ -295,12 +295,17 @@ final class ChangedFiles
     }
 
     /**
+     * Read like workingTreeChanges(): -z prints paths raw (core.quotePath
+     * would turn src/Größe.php into "src/Gr\303\266\303\237e.php"), and
+     * --no-renames lists a rename's old path too – the one the graph has
+     * edges for.
+     *
      * @return array<int, string>
      */
     private function diffSinceSha(string $sha): array
     {
         $process = new Process(
-            ['git', 'diff', '--name-only', $sha.'..HEAD'],
+            ['git', 'diff', '--name-only', '-z', '--no-renames', $sha.'..HEAD'],
             $this->projectRoot,
         );
         $process->run();
@@ -309,7 +314,13 @@ final class ChangedFiles
             throw new GitUnavailableException('TIA mode');
         }
 
-        return $this->toProjectRelative($this->splitLines($process->getOutput()));
+        $output = $process->getOutput();
+
+        if ($output === '') {
+            return [];
+        }
+
+        return $this->toProjectRelative(explode("\x00", rtrim($output, "\x00")));
     }
 
     /**
@@ -376,15 +387,5 @@ final class ChangedFiles
         $sha = trim($process->getOutput());
 
         return $sha === '' ? null : $sha;
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function splitLines(string $output): array
-    {
-        $lines = preg_split('/\R+/', trim($output), flags: PREG_SPLIT_NO_EMPTY);
-
-        return $lines === false ? [] : $lines;
     }
 }

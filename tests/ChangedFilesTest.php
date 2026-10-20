@@ -79,6 +79,36 @@ final class ChangedFilesTest extends TestCase
     }
 
     #[Test]
+    public function since_sha_returns_committed_paths_unquoted(): void
+    {
+        $this->repo->run(['git', 'config', 'core.quotePath', 'true']);
+        $this->repo->write('src/Größe.php', "<?php\nfunction size() {\n    return 1;\n}\n");
+        $baseline = $this->repo->commit('add Größe');
+
+        $this->repo->write('src/Größe.php', "<?php\nfunction size() {\n    return 2;\n}\n");
+        $this->repo->commit('change Größe');
+
+        $this->assertSame(['src/Größe.php'], $this->changedFiles->since($baseline));
+    }
+
+    #[Test]
+    public function since_sha_returns_both_paths_of_a_committed_rename(): void
+    {
+        $this->repo->run(['git', 'config', 'diff.renames', 'true']);
+        $this->repo->write('src/Foo.php', "<?php\nfinal class Foo\n{\n    public function a(): int\n    {\n        return 1;\n    }\n\n    public function b(): int\n    {\n        return 2;\n    }\n}\n");
+        $baseline = $this->repo->commit('add Foo');
+
+        $this->repo->run(['git', 'rm', '-q', 'src/Foo.php']);
+        $this->repo->write('src/Math/Foo.php', "<?php\nfinal class Foo\n{\n    public function a(): int\n    {\n        return 1;\n    }\n\n    public function b(): int\n    {\n        return 3;\n    }\n}\n");
+        $this->repo->commit('move and change Foo');
+
+        $changed = $this->changedFiles->since($baseline);
+        sort($changed);
+
+        $this->assertSame(['src/Foo.php', 'src/Math/Foo.php'], $changed);
+    }
+
+    #[Test]
     public function since_an_unreachable_sha_returns_null(): void
     {
         $this->repo->write('src/Foo.php', "<?php\n");
