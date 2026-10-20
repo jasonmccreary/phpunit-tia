@@ -154,7 +154,7 @@ final class ChangedFilesTest extends TestCase
         $this->repo->write('src/Foo.php', "<?php\nfinal class Foo {}\n");
         $this->repo->commit('add Foo');
 
-        $remaining = $this->changedFiles->filterUnchangedSinceLastRun([], ['src/Foo.php' => '']);
+        $remaining = $this->changedFiles->filterUnchangedSinceLastRun(['src/Foo.php'], ['src/Foo.php' => '']);
 
         $this->assertSame(['src/Foo.php'], $remaining);
     }
