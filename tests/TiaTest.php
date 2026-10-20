@@ -287,6 +287,27 @@ final class TiaTest extends TestCase
     }
 
     /**
+     * Callers that took no snapshot keep the old behavior: the baseline is
+     * whatever the code is when the run ends.
+     */
+    #[Test]
+    public function it_reads_the_baseline_as_the_run_ends_without_a_snapshot(): void
+    {
+        [$class] = $this->startRecordingRun();
+
+        $this->repo->write('src/Foo.php', "<?php\n\nclass Foo\n{\n    public int \$x = 1;\n}\n");
+        $sha = $this->repo->commit('edit Foo while the run is going');
+
+        $this->finishRecordingRun($class, null);
+
+        Tia::configure($this->repo->path(), 'local');
+        $tia = Tia::instance();
+
+        $this->assertSame($sha, $tia->recordedAtSha());
+        $this->assertNotNull($tia->cachedStatusIfUnaffected($class, 'test_it_works'));
+    }
+
+    /**
      * @return array{0: string, 1: RunStart} [className, the snapshot Extension::bootstrap() takes]
      */
     private function startRecordingRun(): array
@@ -305,7 +326,7 @@ final class TiaTest extends TestCase
      * The end of a full, unnarrowed run in which FooTest passed against the
      * Foo committed by startRecordingRun().
      */
-    private function finishRecordingRun(string $class, RunStart $start): void
+    private function finishRecordingRun(string $class, ?RunStart $start): void
     {
         $results = new ResultCollector;
         $results->testPrepared($class.'::test_it_works', $this->repo->path().'/tests/FooTest.php');
