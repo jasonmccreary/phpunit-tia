@@ -45,6 +45,14 @@ final class ChangedFiles
             $snapshot = $lastRunTree[$file] ?? null;
             $current = $this->currentHash($file);
 
+            // snapshotTree() records a missing file as '': absent when the
+            // run saw it and absent now is no change. A source deleted before
+            // a full run started would otherwise count as changed on every
+            // run after it, and pull in every test beside it.
+            if ($snapshot === '' && $current === null) {
+                continue;
+            }
+
             if ($snapshot === null || $current === null || $current !== $snapshot) {
                 $remaining[] = $file;
             }

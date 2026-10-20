@@ -201,6 +201,12 @@ stored graph's files plus the working tree's changes at that moment. A file
 that joins the graph during the run is absent from the snapshot, which the
 next run reads as changed: it costs a re-run, never a stale pass.
 
+The reverse case is a source deleted before the run started. The stored graph
+still knows it, so the snapshot records it as absent (`''`). A file absent then
+and still absent now is unchanged; reading it as changed would send every test
+beside it back through the sibling-directory fallback on each later run. A file
+absent then and present now still counts as changed.
+
 Only a full run snapshots, since a narrowed run never records a baseline. Under
 ParaTest only the parent does, because only the parent writes the merged graph.
 If git can't answer, the writer reads the baseline when the run ends, as it
