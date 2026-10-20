@@ -13,9 +13,14 @@ use JMac\Testing\PhpUnit\Tia\Contracts\State;
  */
 final readonly class GraphWriter
 {
+    /**
+     * @param  RunStart|null  $start  where the code stood when the run started; null reads the
+     *                                baseline as the run ends, for callers that took no snapshot
+     */
     public function __construct(
         private string $projectRoot,
         private string $storageMode,
+        private ?RunStart $start = null,
     ) {}
 
     /**
@@ -29,7 +34,7 @@ final readonly class GraphWriter
         $currentFingerprint = Fingerprint::compute($this->projectRoot);
 
         $changedFiles = new ChangedFiles($this->projectRoot);
-        $branch = $changedFiles->currentBranch() ?? 'default';
+        $branch = $this->start?->branch ?? $changedFiles->currentBranch() ?? 'default';
 
         $graph = $this->loadGraph($state, $currentFingerprint, $branch);
 
@@ -78,11 +83,15 @@ final readonly class GraphWriter
         // authoritative run confirms the deletion, would strand that dependent
         // on the sibling-directory fallback instead of the direct edge, and it
         // could be missed entirely if nothing else in that directory is covered.
+        //
+        // Both pointers come from the start of the run when it took a snapshot
+        // (RunStart): its tests ran against that code, so a commit or an edit
+        // made while it ran is still a change for the next run.
         if ($authoritative) {
             $graph->pruneMissingSources();
 
-            $graph->setRecordedAtSha($branch, $changedFiles->currentSha());
-            $graph->setLastRunTree($branch, $changedFiles->snapshotTree(
+            $graph->setRecordedAtSha($branch, $this->start !== null ? $this->start->sha : $changedFiles->currentSha());
+            $graph->setLastRunTree($branch, $this->start?->tree ?? $changedFiles->snapshotTree(
                 array_values(array_unique([...$graph->allTestFiles(), ...$graph->allSourceFiles()])),
             ));
         }

@@ -60,12 +60,12 @@ final readonly class ParallelRun
      * Parent side: starts the run and merges the workers' shards once ParaTest
      * is done with them, which is the last thing the parent process does.
      */
-    public static function coordinate(string $projectRoot, string $storageMode): void
+    public static function coordinate(string $projectRoot, string $storageMode, ?RunStart $start = null): void
     {
         $run = self::start($projectRoot, $storageMode);
 
-        register_shutdown_function(static function () use ($run, $projectRoot, $storageMode): void {
-            $notice = $run->merge(new GraphWriter($projectRoot, $storageMode));
+        register_shutdown_function(static function () use ($run, $projectRoot, $storageMode, $start): void {
+            $notice = $run->merge(new GraphWriter($projectRoot, $storageMode, $start));
 
             if ($notice !== null) {
                 fwrite(STDERR, $notice);

@@ -53,7 +53,7 @@ final class Extension implements ExtensionContract
         // The parent runs no tests of its own, so it merges the workers' shards
         // whether or not it has a coverage driver; the workers need one.
         if (ParallelRun::isParent()) {
-            ParallelRun::coordinate($projectRoot, $storageMode);
+            ParallelRun::coordinate($projectRoot, $storageMode, $this->runStart($projectRoot, $storageMode));
 
             return;
         }
@@ -107,7 +107,7 @@ final class Extension implements ExtensionContract
             new RecordTestFinished($results),
             new RecordExecutionAborted($scope),
             new WarnCoversTargeting,
-            new WriteGraph($projectRoot, $results, $storageMode, $scope, $parallelRun),
+            new WriteGraph($projectRoot, $results, $storageMode, $scope, $parallelRun, $parallelRun === null ? $this->runStart($projectRoot, $storageMode) : null),
         );
     }
 
@@ -125,6 +125,16 @@ final class Extension implements ExtensionContract
         }
 
         return $tia->summary();
+    }
+
+    /**
+     * Only a full run records a baseline, so a narrowed one skips hashing the
+     * tracked files. A worker records no baseline either: the ParaTest parent
+     * took the snapshot when it started.
+     */
+    private function runStart(string $projectRoot, string $storageMode): ?RunStart
+    {
+        return SuiteSelection::isNarrowed() ? null : RunStart::capture($projectRoot, $storageMode);
     }
 
     /**
