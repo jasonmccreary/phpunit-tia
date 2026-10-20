@@ -107,6 +107,18 @@ final class SetUpOutcomeEndToEndTest extends TestCase
         $this->assertStringContainsString($verdict, $again->getOutput(), 'The broken setUp() must not be replayed as the earlier pass.');
     }
 
+    #[Test]
+    public function it_still_replays_a_test_whose_set_up_is_fine(): void
+    {
+        $this->assertTrue($this->phpunit()->isSuccessful());
+
+        foreach ([1, 2] as $run) {
+            $replay = $this->phpunit();
+
+            $this->assertStringContainsString('OK, but some tests were skipped!', $replay->getOutput(), "Run {$run} must replay the cached pass.");
+        }
+    }
+
     private function writeBoot(string $body): void
     {
         $this->project->write('src/Boot.php', <<<PHP
