@@ -109,6 +109,9 @@ TIA records and replays under ParaTest just as it does in a single process. It r
 
 The baseline only advances when the parallel run was as complete as a single-process run has to be: every worker finished, none stopped mid-suite, and ParaTest did not stop handing out tests because of `--stop-on-failure`. Otherwise the merged results and edges are still kept, but the next run diffs against the previous baseline, and TIA says so on STDERR.
 
+### Changes made during a run
+The baseline is the code as it stood when the run started. A commit or edit made while a long run is going counts as a change for the next run, even if the tests that cover it had already passed.
+
 ### Coverage targeting with `#[Covers*]` attributes
 If your suite uses `#[CoversClass]`, `#[CoversMethod]`, or the other `#[Covers*]` attributes, PHPUnit only collects coverage for the class or method each one names. TIA relies on that coverage to know what a test depends on, so it can wrongly skip a test whose collaborator changed.
 

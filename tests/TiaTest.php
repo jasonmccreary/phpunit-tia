@@ -9,7 +9,9 @@ use JMac\Testing\PhpUnit\Tia\Contracts\Resolver;
 use JMac\Testing\PhpUnit\Tia\FileState;
 use JMac\Testing\PhpUnit\Tia\Fingerprint;
 use JMac\Testing\PhpUnit\Tia\Graph;
+use JMac\Testing\PhpUnit\Tia\GraphWriter;
 use JMac\Testing\PhpUnit\Tia\ResultCollector;
+use JMac\Testing\PhpUnit\Tia\RunStart;
 use JMac\Testing\PhpUnit\Tia\Storage;
 use JMac\Testing\PhpUnit\Tia\Tests\Support\TempGitRepository;
 use JMac\Testing\PhpUnit\Tia\Tia;
@@ -248,6 +250,93 @@ final class TiaTest extends TestCase
         Tia::configure($this->repo->path(), 'local');
 
         $this->assertNull(Tia::instance()->cachedStatusIfUnaffected($class, $method));
+    }
+
+    /**
+     * A full run vouches for the code its tests ran against. A commit made
+     * while it runs reached none of them, so it is still a change for the
+     * next run.
+     */
+    #[Test]
+    public function it_does_not_replay_a_test_whose_source_was_committed_while_the_recording_run_ran(): void
+    {
+        [$class, $start] = $this->startRecordingRun();
+
+        $this->repo->write('src/Foo.php', "<?php\n\nclass Foo\n{\n    public int \$x = 1;\n}\n");
+        $this->repo->commit('edit Foo while the run is going');
+
+        $this->finishRecordingRun($class, $start);
+
+        Tia::configure($this->repo->path(), 'local');
+
+        $this->assertNull(Tia::instance()->cachedStatusIfUnaffected($class, 'test_it_works'));
+    }
+
+    #[Test]
+    public function it_does_not_replay_a_test_whose_source_was_edited_while_the_recording_run_ran(): void
+    {
+        [$class, $start] = $this->startRecordingRun();
+
+        $this->repo->write('src/Foo.php', "<?php\n\nclass Foo\n{\n    public int \$x = 1;\n}\n");
+
+        $this->finishRecordingRun($class, $start);
+
+        Tia::configure($this->repo->path(), 'local');
+
+        $this->assertNull(Tia::instance()->cachedStatusIfUnaffected($class, 'test_it_works'));
+    }
+
+    /**
+     * Callers that took no snapshot keep the old behavior: the baseline is
+     * whatever the code is when the run ends.
+     */
+    #[Test]
+    public function it_reads_the_baseline_as_the_run_ends_without_a_snapshot(): void
+    {
+        [$class] = $this->startRecordingRun();
+
+        $this->repo->write('src/Foo.php', "<?php\n\nclass Foo\n{\n    public int \$x = 1;\n}\n");
+        $sha = $this->repo->commit('edit Foo while the run is going');
+
+        $this->finishRecordingRun($class, null);
+
+        Tia::configure($this->repo->path(), 'local');
+        $tia = Tia::instance();
+
+        $this->assertSame($sha, $tia->recordedAtSha());
+        $this->assertNotNull($tia->cachedStatusIfUnaffected($class, 'test_it_works'));
+    }
+
+    /**
+     * @return array{0: string, 1: RunStart} [className, the snapshot Extension::bootstrap() takes]
+     */
+    private function startRecordingRun(): array
+    {
+        $this->repo->write('src/Foo.php', "<?php\n\nclass Foo\n{\n}\n");
+        $class = $this->defineFixtureClass('tests/FooTest.php');
+        $this->repo->commit('add Foo + FooTest');
+
+        $start = RunStart::capture($this->repo->path(), 'local');
+        $this->assertNotNull($start);
+
+        return [$class, $start];
+    }
+
+    /**
+     * The end of a full, unnarrowed run in which FooTest passed against the
+     * Foo committed by startRecordingRun().
+     */
+    private function finishRecordingRun(string $class, ?RunStart $start): void
+    {
+        $results = new ResultCollector;
+        $results->testPrepared($class.'::test_it_works', $this->repo->path().'/tests/FooTest.php');
+        $results->testPassed();
+
+        (new GraphWriter($this->repo->path(), 'local', $start))->write(
+            [$this->repo->path().'/tests/FooTest.php' => [$this->repo->path().'/src/Foo.php']],
+            $results->all(),
+            true,
+        );
     }
 
     #[Test]
