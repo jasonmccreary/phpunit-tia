@@ -105,6 +105,19 @@ final class FingerprintTest extends TestCase
     }
 
     #[Test]
+    public function a_fingerprint_stored_under_schema_one_no_longer_matches(): void
+    {
+        // Schema 2 changed how PHP files are hashed, so a graph written
+        // under schema 1 holds hashes that can't be compared to new ones.
+        $current = Fingerprint::compute(dirname(__DIR__));
+        $stored = $current;
+        $stored['structural']['schema'] = 1;
+
+        $this->assertSame(2, $current['structural']['schema']);
+        $this->assertFalse(Fingerprint::structuralMatches($stored, $current));
+    }
+
+    #[Test]
     public function structural_matches_is_false_when_composer_lock_changes(): void
     {
         $a = ['structural' => ['schema' => 1, 'composer_lock' => 'hash-a'], 'environmental' => []];
