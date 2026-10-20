@@ -11,6 +11,8 @@ use JMac\Testing\PhpUnit\Tia\Subscribers\RecordTestFailed;
 use JMac\Testing\PhpUnit\Tia\Subscribers\RecordTestFinished;
 use JMac\Testing\PhpUnit\Tia\Subscribers\RecordTestMarkedIncomplete;
 use JMac\Testing\PhpUnit\Tia\Subscribers\RecordTestPassed;
+use JMac\Testing\PhpUnit\Tia\Subscribers\RecordTestPreparationErrored;
+use JMac\Testing\PhpUnit\Tia\Subscribers\RecordTestPreparationFailed;
 use JMac\Testing\PhpUnit\Tia\Subscribers\RecordTestPrepared;
 use JMac\Testing\PhpUnit\Tia\Subscribers\RecordTestSkipped;
 use JMac\Testing\PhpUnit\Tia\Subscribers\WarnCoversTargeting;
@@ -98,6 +100,8 @@ final class Extension implements ExtensionContract
 
         $facade->registerSubscribers(
             new RecordTestPrepared($results),
+            new RecordTestPreparationErrored($results),
+            new RecordTestPreparationFailed($results),
             new RecordTestPassed($results),
             new RecordTestFailed($results),
             new RecordTestErrored($results),
