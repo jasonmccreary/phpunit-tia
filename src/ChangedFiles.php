@@ -312,8 +312,10 @@ final class ChangedFiles
      */
     private function diffSinceSha(string $sha): array
     {
+        // Force repo-root paths whatever diff.relative says. -c rather than
+        // --no-relative, which git before 2.28 rejects.
         $process = new Process(
-            ['git', 'diff', '--name-only', '-z', '--no-renames', $sha.'..HEAD'],
+            ['git', '-c', 'diff.relative=false', 'diff', '--name-only', '-z', '--no-renames', $sha.'..HEAD'],
             $this->projectRoot,
         );
         $process->run();
